@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GENEVA</title>
+  <meta name="description" content="An open-world Geneva around Lac Léman and the Jet d'Eau, built with Three.js. Drive, fly a helicopter, boat on the lake, and walk the streets in your browser: no install." />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- Full-bleed WebGL Canvas -->
+  <canvas id="c"></canvas>
+
+  <!-- Boot / Title Overlay -->
+  <div id="boot" class="lw">
+    <div id="lwvignette"></div>
+
+    <div id="startbox">
+      <h1 class="title">GENEVA</h1>
+      <p class="intro">
+        An open-world Geneva around the Rade, Jet d'Eau, Pont du Mont-Blanc, and Vieille-Ville.
+        Walk the quays, drive cars across the bridge, board a Mouette boat on Lac Léman, or fly a helicopter over the lake — running live in WebGL.
+      </p>
+
+      <div id="loadwrap">
+        <div id="loadtrack"><div id="loadbar"></div></div>
+        <div id="loadmeta">
+          <span id="loadeta">Building Geneva…</span>
+          <span id="loadtxt">0%</span>
+        </div>
+      </div>
+
+      <button id="playbtn" disabled>PLAY</button>
+      <div id="pgnote">Click PLAY to drop into the city. Click anywhere in-game to look around.</div>
+
+      <div class="ctrl-summary">
+        <div><kbd>W A S D</kbd> Move / Drive / Swim &nbsp;·&nbsp; <kbd>SHIFT</kbd> Sprint &nbsp;·&nbsp; <kbd>SPACE</kbd> Jump / Vault / Drift</div>
+        <div><kbd>G</kbd> Parkour Roll &nbsp;·&nbsp; <kbd>CTRL</kbd>/<kbd>Z</kbd> Crouch &nbsp;·&nbsp; <kbd>1</kbd>–<kbd>4</kbd> Wave / Cheer / Backflip / Watch</div>
+        <div><kbd>F</kbd> Enter / Steal / Ride E-Scooter &nbsp;·&nbsp; <kbd>E</kbd> Sit / Interact / Nitro &nbsp;·&nbsp; <kbd>X</kbd> Grapple Hook &nbsp;·&nbsp; <kbd>R</kbd> Radio &nbsp;·&nbsp; <kbd>C</kbd> Cinematic</div>
+        <div><kbd>TAB</kbd> Swiss City Map &nbsp;·&nbsp; <kbd>ESC</kbd> / <kbd>P</kbd> Menu &nbsp;·&nbsp; <kbd>V</kbd> Camera &nbsp;·&nbsp; <kbd>M</kbd> Sound &nbsp;·&nbsp; <kbd>\</kbd> Full screen</div>
+      </div>
+
+      <div id="mappick">
+        <span class="pick-label">Start in:</span>
+        <button class="district-btn active" data-spawn="rade">Rade &amp; Jardin Anglais</button>
+        <button class="district-btn" data-spawn="vieilleville">Vieille-Ville</button>
+        <button class="district-btn" data-spawn="paquis">Pâquis &amp; Jet d'Eau</button>
+        <button class="district-btn" data-spawn="bastions">Place de Neuve &amp; Bastions</button>
+      </div>
+
+      <details id="whatsnew">
+        <summary>What's in this 1:1 Geneva build</summary>
+        <div class="wn-body">
+          <div class="wn-date">v0.3 · 1:1 Real Geneva (swisstopo + OSM)</div>
+          <ul>
+            <li>Exact 1:1 central Geneva (2.2 km²): 2,378 real OpenStreetMap building footprints, 1,330 real named streets, and 1,315 real street trees aligned to Swiss LV95 meters.</li>
+            <li>3072×3072 official swisstopo swissimage aerial orthophoto draped onto real swisstopo ALTI3D terrain + real orthophoto rooftops &amp; PBR limestone facades.</li>
+            <li>GTA-grade graphics: EffectComposer + UnrealBloomPass, physical sky dome, GLSL Lac Léman water shader, sculpted clearcoat cars, curved Swiss Rescue Helicopter, and volumetric 140m Jet d'Eau.</li>
+            <li>Official swisstopo Swiss topographic map in the minimap &amp; Tab City Map (press S in map to toggle Satellite view).</li>
+          </ul>
+        </div>
+      </details>
+
+      <div class="start-footer">
+        <span>1:1 Real Geneva · Three.js + swisstopo (swissimage, ALTI3D, pixelkarte) + OpenStreetMap</span>
+        <a href="#" id="credits-open">credits</a>
+      </div>
+    </div>
+
+    <div id="lwcap">Take any car along Quai du Général-Guisan. <kbd>F</kbd> gets in and out, <kbd>W A S D</kbd> drives.</div>
+    <div id="buildstamp">build geneva-0.1 webgl</div>
+    <div id="boot-hint">Tab opens the city map. Esc is the menu.</div>
+  </div>
+
+  <!-- Live In-Game HUD -->
+  <div id="hud" class="hidden">
+    <!-- Top-Left Mission Card -->
+    <div id="mission-card">
+      <div class="mission-tag" id="mission-tag">JOB 01</div>
+      <div class="mission-title" id="mission-title">Get in the car</div>
+      <div class="mission-sub" id="mission-sub">Red coupe, by Jardin Anglais · 12 m</div>
+    </div>
+
+    <!-- Top-Center Waypoint Pill + Live Open-World Compass Bar -->
+    <div id="waypoint-pill">
+      <span class="wp-icon" id="wp-icon">🚁</span>
+      <span id="wp-text">HELICOPTER 180 m · on your map</span>
+    </div>
+    <div id="compass-bar">
+      <div id="compass-track"></div>
+      <div id="compass-caret"></div>
+    </div>
+
+    <!-- Top-Right Status Stack -->
+    <div id="status-stack">
+      <div class="hud-pill wanted-pill hidden" id="wanted-stars">★ ★ ★ ★ ★</div>
+      <div class="hud-pill cash-pill" id="cash-display">CHF 0</div>
+      <div class="hud-pill vehicle-card">
+        <div class="vc-label" id="vc-label">ON FOOT</div>
+        <div class="vc-main">
+          <span id="vc-value">RADE</span>
+          <span class="vc-unit" id="vc-unit">0 / 12</span>
+        </div>
+        <div class="vc-bar"><div class="vc-fill" id="vc-fill"></div></div>
+      </div>
+      <div class="hud-pill fps-pill hidden" id="fps-hud">60 FPS</div>
+    </div>
+
+    <!-- GTA Radio & Drift/Stunt Toast Banners -->
+    <div id="radio-banner" class="hidden">📻 COULEUR 3 · GENÈVE</div>
+    <div id="stunt-toast" class="hidden">DRIFT +CHF 75</div>
+
+    <!-- Center Crosshair (subtle) -->
+    <div id="crosshair"></div>
+
+    <!-- Toast / Subtitle Bar -->
+    <div id="subtitle-bar" class="hidden"></div>
+
+    <!-- Bottom-Left Street Pill -->
+    <div id="street-pill">QUAI DU GÉNÉRAL-GUISAN</div>
+
+    <!-- Bottom-Center Action Prompt -->
+    <div id="action-prompt" class="hidden">
+      <kbd id="ap-key">F</kbd> <span id="ap-text">ENTER COUPE</span>
+    </div>
+    <div id="hook-prompt"><kbd>X</kbd> HOOK</div>
+
+    <!-- Bottom-Right Circular Minimap -->
+    <div id="minimap-wrap">
+      <div id="minimap-hint"><kbd>TAB</kbd> map</div>
+      <canvas id="minimap" width="220" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Persistent Bottom-Right Corner Pills -->
+  <div id="corner-pills">
+    <button class="corner-pill" id="fsbtn"><kbd>\</kbd> Full screen</button>
+    <button class="corner-pill" id="fblink"><kbd>B</kbd> Feedback</button>
+  </div>
+
+  <!-- Full-Screen Interactive City Map (Tab) -->
+  <div id="fullmap" class="hidden">
+    <canvas id="fullmap-canvas"></canvas>
+    <div class="fm-header">
+      <div>
+        <div class="fm-title">GENEVA · 1:1 SWISS CITY MAP</div>
+        <div class="fm-sub">Click set waypoint · Right-click clear · Drag pan · Scroll zoom · <kbd>S</kbd> Satellite/Topo · <kbd>0</kbd> reset · <kbd>TAB</kbd> close</div>
+      </div>
+      <div class="fm-legend">
+        <span class="fm-found" id="fm-found">FOUND 0 / 12</span>
+        <span class="leg-item"><i class="dot dot-gold"></i> Collectible</span>
+        <span class="leg-item"><i class="dot dot-heli"></i> Helicopter</span>
+        <span class="leg-item"><i class="dot dot-boat"></i> Mouette</span>
+        <span class="leg-item"><i class="dot dot-wp"></i> Waypoint</span>
+      </div>
+    </div>
+    <div class="fm-scale">
+      <div class="fm-scale-bar"></div>
+      <span id="fm-scale-txt">250 m</span>
+    </div>
+  </div>
+
+  <!-- Pause & Settings Menu (Esc / P) -->
+  <div id="ctmenu" class="hidden">
+    <div class="ct-shell">
+      <aside class="ct-sidebar">
+        <div class="ct-brand">
+          <div class="ct-paused">PAUSED</div>
+          <div class="ct-name">GENEVA</div>
+        </div>
+        <button class="ct-resume" id="menu-resume">RESUME</button>
+        <button class="ct-nav" id="menu-open-map">Map <span class="muted">(Tab)</span></button>
+        <div class="ct-sep"></div>
+        <button class="ct-nav active" data-tab="graphics">Graphics</button>
+        <button class="ct-nav" data-tab="controls">Controls</button>
+        <button class="ct-nav" data-tab="audio">Audio</button>
+        <button class="ct-nav" data-tab="subtitles">Subtitles</button>
+        <div class="ct-spacer"></div>
+        <button class="ct-nav" id="menu-feedback">Feedback</button>
+        <button class="ct-nav" id="menu-reset">Reset settings</button>
+      </aside>
+
+      <main class="ct-content">
+        <!-- Graphics Tab -->
+        <section class="ct-pane active" id="tab-graphics">
+          <div class="pane-head">
+            <h2>GRAPHICS</h2>
+            <div class="fps-live" id="menu-fps-readout">60 fps on Auto</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Quality</div>
+            <div class="seg-group" id="quality-seg">
+              <button data-q="auto" class="active">Auto</button>
+              <button data-q="low">Low</button>
+              <button data-q="medium">Medium</button>
+              <button data-q="high">High</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Show the frame rate while playing</div>
+            <button class="toggle-btn" id="tog-fps">Off</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Full screen</div>
+            <button class="toggle-btn" id="tog-fs">Off</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Rain</div>
+            <button class="toggle-btn" id="tog-rain">Off</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Flashlight</div>
+            <button class="toggle-btn" id="tog-flash">Off</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Day and night cycle</div>
+            <button class="toggle-btn on" id="tog-daycycle">On</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Time of day <span class="val-readout" id="tod-val">14:30</span></div>
+            <input type="range" id="rng-tod" min="0" max="24" step="0.1" value="14.5" />
+          </div>
+        </section>
+
+        <!-- Controls Tab -->
+        <section class="ct-pane" id="tab-controls">
+          <div class="pane-head"><h2>CONTROLS</h2></div>
+
+          <div class="setting-row">
+            <div class="s-label">Mouse sensitivity <span class="val-readout" id="sens-val">1.00×</span></div>
+            <input type="range" id="rng-sens" min="0.3" max="2.5" step="0.05" value="1.0" />
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Invert up / down</div>
+            <button class="toggle-btn" id="tog-invert">Off</button>
+          </div>
+
+          <div class="bind-grid">
+            <div class="bind-col">
+              <h3>On Foot</h3>
+              <div class="bind-item"><span>Move</span><kbd>W A S D</kbd></div>
+              <div class="bind-item"><span>Sprint</span><kbd>SHIFT</kbd></div>
+              <div class="bind-item"><span>Jump</span><kbd>SPACE</kbd></div>
+              <div class="bind-item"><span>Grapple hook</span><kbd>X</kbd></div>
+              <div class="bind-item"><span>Enter / exit vehicle</span><kbd>F</kbd></div>
+            </div>
+            <div class="bind-col">
+              <h3>Driving &amp; Helicopter</h3>
+              <div class="bind-item"><span>Drive / Pitch &amp; Roll</span><kbd>W A S D</kbd></div>
+              <div class="bind-item"><span>Handbrake / Ascend</span><kbd>SPACE</kbd></div>
+              <div class="bind-item"><span>Descend (Heli)</span><kbd>SHIFT</kbd></div>
+              <div class="bind-item"><span>Yaw Left / Right (Heli)</span><kbd>Q / E</kbd></div>
+              <div class="bind-item"><span>Boost / Horn (Car)</span><kbd>E</kbd></div>
+            </div>
+            <div class="bind-col">
+              <h3>Camera &amp; System</h3>
+              <div class="bind-item"><span>Cycle camera</span><kbd>V</kbd></div>
+              <div class="bind-item"><span>City map</span><kbd>TAB</kbd></div>
+              <div class="bind-item"><span>Pause menu</span><kbd>ESC / P</kbd></div>
+              <div class="bind-item"><span>Toggle sound</span><kbd>M</kbd></div>
+              <div class="bind-item"><span>Full screen</span><kbd>\</kbd></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Audio Tab -->
+        <section class="ct-pane" id="tab-audio">
+          <div class="pane-head"><h2>AUDIO</h2></div>
+
+          <div class="setting-row">
+            <div class="s-label">Master volume <span class="val-readout" id="vol-master-val">80%</span></div>
+            <input type="range" id="rng-vol-master" min="0" max="100" value="80" />
+          </div>
+          <div class="setting-row">
+            <div class="s-label">Engine &amp; Helicopter <span class="val-readout" id="vol-eng-val">85%</span></div>
+            <input type="range" id="rng-vol-eng" min="0" max="100" value="85" />
+          </div>
+          <div class="setting-row">
+            <div class="s-label">City &amp; Lac Léman <span class="val-readout" id="vol-city-val">75%</span></div>
+            <input type="range" id="rng-vol-city" min="0" max="100" value="75" />
+          </div>
+          <div class="setting-row">
+            <div class="s-label">Radio volume <span class="val-readout" id="vol-radio-val">60%</span></div>
+            <input type="range" id="rng-vol-radio" min="0" max="100" value="60" />
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Car &amp; City Radio</div>
+            <div class="seg-group" id="radio-seg">
+              <button data-r="off" class="active">Off</button>
+              <button data-r="couleur">Couleur 3</button>
+              <button data-r="lac">Lac FM</button>
+              <button data-r="paquis">Pâquis Chill</button>
+              <button data-r="nations">Nations Jazz</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Subtitles Tab -->
+        <section class="ct-pane" id="tab-subtitles">
+          <div class="pane-head"><h2>SUBTITLES</h2></div>
+
+          <div class="setting-row">
+            <div class="s-label">Show dispatch &amp; landmark subtitles</div>
+            <button class="toggle-btn on" id="tog-subs">On</button>
+          </div>
+          <div class="setting-row">
+            <div class="s-label">Text size <span class="val-readout" id="subsize-val">100%</span></div>
+            <input type="range" id="rng-subsize" min="80" max="150" value="100" />
+          </div>
+          <div class="sub-preview" id="sub-preview">
+            Dispatcher: Welcome to Geneva. Head to the Alpine coupe by Jardin Anglais.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="ct-footer">
+      <span><kbd>Esc</kbd> resume</span>
+      <span><kbd>Tab</kbd> map</span>
+      <span><kbd>\</kbd> full screen</span>
+      <span><kbd>M</kbd> sound</span>
+    </div>
+  </div>
+
+  <!-- Feedback Modal (B) -->
+  <div id="fbmodal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>SEND FEEDBACK</h2>
+        <button class="icon-close" id="fb-close">✕</button>
+      </div>
+      <div class="fb-body">
+        <img id="fb-thumb" alt="Live viewport capture" />
+        <div class="fb-meta" id="fb-meta"></div>
+        <textarea id="fb-note" rows="3" placeholder="Describe a bug, landmark request, or idea for Geneva..."></textarea>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="fb-cancel">Close</button>
+          <button class="btn-primary" id="fb-send">Save report locally</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Credits Modal -->
+  <div id="credits-modal" class="modal-backdrop hidden">
+    <div class="modal-card credits-card">
+      <div class="modal-head">
+        <h2>GENEVA · CREDITS &amp; ARCHITECTURE</h2>
+        <button class="icon-close" id="credits-close">✕</button>
+      </div>
+      <div class="credits-body">
+        <p><strong>GENEVA</strong> is an interactive WebGL open-world sandbox inspired by CROSSTOWN, built with <strong>Three.js</strong> and procedural PBR architectural generation for instant loading and locked 60 FPS in any modern browser.</p>
+        <h3>Landmarks Represented</h3>
+        <ul>
+          <li><strong>Rade de Genève &amp; Jet d'Eau</strong> — 140m animated water plume &amp; Jetée des Eaux-Vives</li>
+          <li><strong>Pont du Mont-Blanc &amp; Île Rousseau</strong> — Flags, Rhône outflow, and Pont des Bergues</li>
+          <li><strong>Jardin Anglais &amp; Horloge Fleurie</strong> — Lakeside park &amp; working Flower Clock</li>
+          <li><strong>Vieille-Ville &amp; Cathédrale Saint-Pierre</strong> — Elevated Old Town &amp; twin-tower cathedral</li>
+          <li><strong>Bains des Pâquis</strong> — Pier, lighthouse, and lakeside promenade</li>
+          <li><strong>Place des Nations</strong> — Palais des Nations &amp; Broken Chair sculpture</li>
+        </ul>
+        <h3>Upgrading to Photorealistic Swiss Open Data</h3>
+        <p>The world loader is modular: you can drop in <code>.glb</code> city tiles baked in Blender from <strong>swisstopo swissBUILDINGS3D</strong>, <strong>SITG Geneva Open Data</strong>, and <strong>OpenStreetMap</strong> with KTX2 textures.</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
