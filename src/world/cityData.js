@@ -479,7 +479,18 @@ export function getGroundHeight(x, z) {
 
 // Real 1:1 OSM street name lookup for the HUD!
 export function getStreetName(x, z, y = 2) {
-  if (y > 38) return 'GENEVA AIRSPACE · LAC LÉMAN';
+  if (y > 38) {
+    const overZone = isWater(x, z)
+      ? x < -220
+        ? 'LE RHÔNE'
+        : 'LAC LÉMAN'
+      : z > 350
+      ? 'VIEILLE-VILLE'
+      : z < -100
+      ? 'RIVE DROITE'
+      : 'RIVE GAUCHE · RUE DU RHÔNE';
+    return `GENEVA AIRSPACE · ${overZone}`;
+  }
   if (Math.hypot(x - 457.8, z - -147.0) < 35) return "JET D'EAU · JETÉE DES EAUX-VIVES";
   if (distToSegment(x, z, 375, -528, 520, -478) < 42) return 'BAINS DES PÂQUIS · PLAGE & BUVETTE';
   if (Math.hypot(x - 571.1, z - -463.1) < 55) return 'BAINS DES PÂQUIS · LE PHARE';

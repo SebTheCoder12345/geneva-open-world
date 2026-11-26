@@ -17,13 +17,13 @@ function makeInteriorPlaque(title, sub, bg, fg) {
   ctx.fillRect(0, 0, 512, 128);
   ctx.strokeStyle = fg;
   ctx.lineWidth = 5;
-  ctx.strokeRect(8, 8, 496, 112);
+  ctx.strokeRect(10, 10, 492, 108);
   ctx.fillStyle = fg;
   ctx.textAlign = 'center';
-  ctx.font = 'bold 34px "Georgia", serif';
-  ctx.fillText(title, 256, 56);
-  ctx.font = 'bold 18px "Helvetica Neue", Arial, sans-serif';
-  ctx.fillText(sub, 256, 94);
+  ctx.font = 'bold 28px "Georgia", serif';
+  ctx.fillText(title, 256, 56, 456);
+  ctx.font = 'bold 16px "Helvetica Neue", Arial, sans-serif';
+  ctx.fillText(sub, 256, 94, 456);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -78,16 +78,18 @@ export function createGenevaInteriors(scene, worldGroup, registerInteractable) {
     interiorsRoot.add(g);
 
     const floorMat = new THREE.MeshStandardMaterial({
-      map: makeMarbleFloorTex(floorColor, '#b5aa98'),
-      roughness: 0.22,
-      metalness: 0.08,
+      map: makeMarbleFloorTex(floorColor, '#a89c88'),
+      roughness: 0.44,
+      metalness: 0.04,
+      envMapIntensity: 0.14,
     });
-    const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.72, metalness: 0.04 });
-    const ceilMat = new THREE.MeshStandardMaterial({ color: 0xf4f0e8, roughness: 0.85 });
-    const brassMat = new THREE.MeshStandardMaterial({ color: 0xd8b24c, roughness: 0.22, metalness: 0.88 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.78, metalness: 0.03, envMapIntensity: 0.16 });
+    const ceilMat = new THREE.MeshStandardMaterial({ color: 0xeae5db, roughness: 0.88, envMapIntensity: 0.12 });
+    const brassMat = new THREE.MeshStandardMaterial({ color: 0xd8b24c, roughness: 0.24, metalness: 0.84, envMapIntensity: 0.45 });
     const exitDoorMat = new THREE.MeshStandardMaterial({
       map: makeInteriorPlaque('SORTIE · GENÈVE', 'PRESS [E] TO STEP OUTSIDE', '#163828', '#f2d98a'),
-      roughness: 0.35,
+      roughness: 0.38,
+      envMapIntensity: 0.18,
     });
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(width, 0.3, depth), floorMat);
@@ -116,11 +118,11 @@ export function createGenevaInteriors(scene, worldGroup, registerInteractable) {
     );
     sign.position.set(0, height - 1.25, -depth * 0.5 + 0.22);
 
-    // Balanced warm architectural interior illumination (rich luxury ambience, zero blown-out white floor glare!)
-    const light1 = new THREE.PointLight(0xffe2b5, 16, 26, 1.5);
-    light1.position.set(0, height - 0.75, -depth * 0.18);
-    const light2 = new THREE.PointLight(0xfff0d4, 11, 24, 1.5);
-    light2.position.set(0, height - 0.75, depth * 0.24);
+    // Balanced soft warm architectural interior illumination (zero ceiling hotspot or harsh grazing specular on suit!)
+    const light1 = new THREE.PointLight(0xffe6bd, 6.5, 28, 1.35);
+    light1.position.set(0, height - 0.55, -depth * 0.24);
+    const light2 = new THREE.PointLight(0xfff1d8, 4.5, 26, 1.35);
+    light2.position.set(0, height - 0.55, depth * 0.36);
 
     g.add(floor, ceil, wallN, wallS, wallW, wallE, exitDoor, sign, light1, light2);
 
@@ -307,31 +309,86 @@ export function createGenevaInteriors(scene, worldGroup, registerInteractable) {
       13,
       12,
       4.2,
-      '#9c7852',
-      '#7a5638',
+      '#94714c',
+      '#6b4b31',
       '#144278',
-      { x: 425.0, z: -511.5, y: 1.96, yaw: 1.24 }
+      { x: 434.5, z: -505.2, y: 1.96, yaw: 1.24 }
     );
-    const pine = new THREE.MeshStandardMaterial({ color: 0xb2885c, roughness: 0.72 });
-    const copper = new THREE.MeshStandardMaterial({ color: 0xc86b38, roughness: 0.28, metalness: 0.85 });
-    const cheese = new THREE.MeshStandardMaterial({ color: 0xf6d874, roughness: 0.36 });
+    const pine = new THREE.MeshStandardMaterial({ color: 0xab7f52, roughness: 0.76, envMapIntensity: 0.18 });
+    const darkTimber = new THREE.MeshStandardMaterial({ color: 0x4c321e, roughness: 0.80, envMapIntensity: 0.16 });
+    const slateTop = new THREE.MeshStandardMaterial({ color: 0x2b3036, roughness: 0.48, metalness: 0.12, envMapIntensity: 0.22 });
+    const copper = new THREE.MeshStandardMaterial({ color: 0xc86b38, roughness: 0.28, metalness: 0.82, envMapIntensity: 0.45 });
+    const chrome = new THREE.MeshStandardMaterial({ color: 0xdbe2ea, roughness: 0.20, metalness: 0.90, envMapIntensity: 0.55 });
+    const cheese = new THREE.MeshStandardMaterial({ color: 0xf6d874, roughness: 0.36, envMapIntensity: 0.2 });
+    const runnerMat = new THREE.MeshStandardMaterial({ color: 0xb8242e, roughness: 0.84, envMapIntensity: 0.15 });
+    const lampGlow = new THREE.MeshStandardMaterial({ color: 0xfff0c8, emissive: 0xffc466, emissiveIntensity: 1.2, roughness: 0.2 });
 
-    // Wooden Chalet Bar Counter + Espresso Machine
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(6.8, 1.1, 1.15), pine);
-    bar.position.set(0, 0.55, -3.6);
-    const espresso = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.65, 0.58), new THREE.MeshStandardMaterial({ color: 0xc8242c, roughness: 0.25, metalness: 0.6 }));
-    espresso.position.set(-1.6, 1.42, -3.6);
-    r.group.add(bar, espresso);
+    // Crafted Swiss Wooden Chalet Bar Counter + Overhanging Dark Slate Bar Top + Vertical Timber Slats + Espresso Machine!
+    const barBase = new THREE.Mesh(new THREE.BoxGeometry(6.8, 1.04, 1.05), pine);
+    barBase.position.set(0, 0.52, -3.6);
+    const barTop = new THREE.Mesh(new THREE.BoxGeometry(7.05, 0.10, 1.28), slateTop);
+    barTop.position.set(0, 1.09, -3.55);
+    const footRail = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 6.7, 8).rotateZ(Math.PI * 0.5), r.brassMat);
+    footRail.position.set(0, 0.22, -2.96);
+    r.group.add(barBase, barTop, footRail);
+    for (let sx = -3.1; sx <= 3.11; sx += 0.62) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.02, 0.06), darkTimber);
+      slat.position.set(sx, 0.52, -3.05);
+      r.group.add(slat);
+    }
+    // 3 Chalet Bar Stools along the counter
+    for (const bsx of [-2.1, 0.2, 2.2]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.72, 8), darkTimber);
+      leg.position.set(bsx, 0.36, -2.42);
+      const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.20, 0.07, 14), pine);
+      seat.position.set(bsx, 0.74, -2.42);
+      r.group.add(leg, seat);
+    }
+    // Classic Red Swiss Espresso Machine with Chrome Grouphead & Warm Porcelain Cups
+    const espresso = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.58, 0.52), new THREE.MeshStandardMaterial({ color: 0xb81f28, roughness: 0.28, metalness: 0.45, envMapIntensity: 0.35 }));
+    espresso.position.set(-1.6, 1.43, -3.65);
+    const groupHead = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.14, 0.22), chrome);
+    groupHead.position.set(-1.6, 1.54, -3.34);
+    const dripTray = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.05, 0.26), chrome);
+    dripTray.position.set(-1.6, 1.17, -3.34);
+    r.group.add(espresso, groupHead, dripTray);
+    // Warm Hanging Chalet Pendant Lamps over the bar!
+    for (const lx of [-2.2, 0.0, 2.2]) {
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1.1, 6), darkTimber);
+      cord.position.set(lx, 3.65, -3.55);
+      const shade = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.22, 12, 1, true), copper);
+      shade.position.set(lx, 3.05, -3.55);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), lampGlow);
+      bulb.position.set(lx, 2.98, -3.55);
+      r.group.add(cord, shade, bulb);
+    }
 
-    // 4 Communal Swiss Wooden Fondue Tables with Glowing Copper Caquelons!
-    for (const [tx, tz] of [[-3.2, 0.4], [3.2, 0.4], [-3.2, 3.0], [3.2, 3.0]]) {
-      const tbl = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.78, 1.15), pine);
-      tbl.position.set(tx, 0.39, tz);
+    // 4 Crafted Four-Legged Swiss Wooden Fondue Tables with Red Runners, Benches & Copper Caquelons!
+    for (const [tx, tz] of [[-3.4, 0.4], [3.4, 0.4], [-3.4, 3.1], [3.4, 3.1]]) {
+      const top = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.09, 1.08), pine);
+      top.position.set(tx, 0.76, tz);
+      const runner = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.015, 1.10), runnerMat);
+      runner.position.set(tx, 0.812, tz);
+      r.group.add(top, runner);
+      for (const [lx, lz] of [[-1.02, -0.42], [1.02, -0.42], [-1.02, 0.42], [1.02, 0.42]]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.72, 0.09), darkTimber);
+        leg.position.set(tx + lx, 0.36, tz + lz);
+        r.group.add(leg);
+      }
+      for (const bSide of [-0.82, 0.82]) {
+        const bench = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.07, 0.34), pine);
+        bench.position.set(tx, 0.45, tz + bSide);
+        const bLegL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.28), darkTimber);
+        bLegL.position.set(tx - 0.82, 0.21, tz + bSide);
+        const bLegR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.28), darkTimber);
+        bLegR.position.set(tx + 0.82, 0.21, tz + bSide);
+        r.group.add(bench, bLegL, bLegR);
+      }
       const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.20, 0.16, 14), copper);
-      pot.position.set(tx, 0.86, tz);
+      pot.position.set(tx, 0.89, tz);
       const fon = new THREE.Mesh(new THREE.CircleGeometry(0.21, 14).rotateX(-Math.PI / 2), cheese);
-      fon.position.set(tx, 0.945, tz);
-      r.group.add(tbl, pot, fon);
+      fon.position.set(tx, 0.975, tz);
+      r.group.add(pot, fon);
     }
 
     r.interactables.push({
@@ -340,8 +397,8 @@ export function createGenevaInteriors(scene, worldGroup, registerInteractable) {
       subtitle: 'Buvette des Bains: "Bon appétit! Gruyère & Vacherin Fribourgeois Fondue Moitié-Moitié served warm!"',
       toast: 'BUVETTE DES BAINS · FONDUE!',
       x: 0,
-      z: -2.2,
-      radius: 2.9,
+      z: -2.0,
+      radius: 3.1,
       rewardCash: 0,
     });
   }
@@ -349,7 +406,13 @@ export function createGenevaInteriors(scene, worldGroup, registerInteractable) {
   function enterInterior(id, playerState) {
     const room = rooms.get(id);
     if (!room) return null;
-    savedOutdoorPos = { x: playerState.x, y: playerState.y, z: playerState.z, yaw: playerState.yaw };
+    // Only restore savedOutdoorPos if the player actually walked in from this venue's exterior doorway!
+    // If entered via teleport/preset from across Geneva, exit MUST return cleanly to room.entryWorld (e.g. Les Bains des Pâquis)!
+    const distToEntry = Math.hypot(playerState.x - room.entryWorld.x, playerState.z - room.entryWorld.z);
+    savedOutdoorPos =
+      distToEntry < 14.0
+        ? { x: playerState.x, y: playerState.y, z: playerState.z, yaw: playerState.yaw }
+        : null;
     if (activeRoom) activeRoom.group.visible = false;
     activeRoom = room;
     room.group.visible = true;

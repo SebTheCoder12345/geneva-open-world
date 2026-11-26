@@ -421,14 +421,20 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
     // Tour du Molard Medieval Clock Dials & Geneva Coat of Arms Relief bolted FLUSH to the EXACT measured
     // South (Place du Molard) and North (Rue du Rhône) faces of the real swisstopo tower polygon (ZERO floating quoins or neighbor clipping!)
     const crestTex = makeInscribedPlaque('TOUR DU MOLARD', 'GENEVA CIVITAS REFUGII · 1591', '#8b242a', '#f2cf78', 512, 160);
-    const crestMat = new THREE.MeshStandardMaterial({ map: crestTex, roughness: 0.65 });
+    const crestMat = new THREE.MeshStandardMaterial({
+      map: crestTex,
+      emissive: 0xffe0a8,
+      emissiveMap: crestTex,
+      emissiveIntensity: 0.36,
+      roughness: 0.62,
+    });
     const tmY = getGroundHeight(-150.1, 228.3);
 
     const tourFaces = [
       // South facade facing Place du Molard (exact OSM edge [-148.7, 233.8] -> [-154.4, 230.4], width 6.64m!)
-      { x: -151.55, z: 232.10, yaw: -0.537, width: 5.4, hasPortal: true },
+      { x: -151.55, z: 232.10, yaw: -0.537, width: 4.9, hasPortal: true },
       // North facade facing Rue du Rhône (exact OSM edge [-152.4, 222.7] -> [-144.8, 226.3], width 8.41m!)
-      { x: -148.60, z: 224.50, yaw: 2.699, width: 6.2, hasPortal: false },
+      { x: -148.60, z: 224.50, yaw: 2.699, width: 5.6, hasPortal: false },
     ];
 
     for (const face of tourFaces) {
@@ -443,16 +449,16 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
       rim.position.set(0, 14.2, 0.18);
       // Geneva Civitas Refugii carved stone & heraldic crest plaque
       const relief = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.18, 0.18), crestMat);
-      relief.position.set(0, 10.4, 0.12);
-      // Medieval stone machicolation corbel belt flush along upper face
-      const corbHalf = face.width * 0.46;
-      for (let cx = -corbHalf; cx <= corbHalf + 0.05; cx += 0.92) {
-        const corbel = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.62, 0.28), limestoneMat);
-        corbel.position.set(cx, 12.25, 0.14);
+      relief.position.set(0, 10.2, 0.12);
+      // Medieval stone machicolation corbel belt flush inside upper face (below roofline so zero corner overhang!)
+      const corbHalf = face.width * 0.42;
+      for (let cx = -corbHalf; cx <= corbHalf + 0.04; cx += 0.92) {
+        const corbel = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.56, 0.22), limestoneMat);
+        corbel.position.set(cx, 11.75, 0.11);
         fg.add(corbel);
       }
-      const belt = new THREE.Mesh(new THREE.BoxGeometry(face.width, 0.28, 0.30), limestoneMat);
-      belt.position.set(0, 12.64, 0.15);
+      const belt = new THREE.Mesh(new THREE.BoxGeometry(face.width, 0.26, 0.24), limestoneMat);
+      belt.position.set(0, 12.12, 0.12);
       fg.add(dial, rim, relief, belt);
 
       // Vaulted Gothic carved-oak portal ONLY on the open Place du Molard South face (NEVER protruding!)

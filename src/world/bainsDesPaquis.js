@@ -244,6 +244,16 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
   eastApproach.receiveShadow = true;
   staticGroup.add(westApproach, eastApproach);
 
+  // Register solid walkableTop timber deck colliders across the full Bains des Pâquis pier & approaches
+  // so players NEVER sink through overhanging wooden deck planks where the underlying lakebed slopes down!
+  if (insertCollider) {
+    insertCollider({ kind: 'obb', x: bpX, z: bpZ, yaw: bpYaw, halfW: 13.3, halfL: 46.5, maxY: deckTopY + 0.01, walkableTop: true });
+    const [wx, wz] = toWorld(-1.5, -62.0);
+    insertCollider({ kind: 'obb', x: wx, z: wz, yaw: bpYaw, halfW: 5.75, halfL: 17.0, maxY: deckTopY + 0.01, walkableTop: true });
+    const [ex, ez] = toWorld(0, 62.0);
+    insertCollider({ kind: 'obb', x: ex, z: ez, yaw: bpYaw, halfW: 5.25, halfL: 17.0, maxY: deckTopY + 0.01, walkableTop: true });
+  }
+
   // Iconic South-Facing Wooden Amphitheater Sunbathing Bleacher Steps (facing the Jet d'Eau & Alps!)
   for (let tier = 0; tier < 3; tier++) {
     const stepW = 1.15;
@@ -519,7 +529,11 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
       wire.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), segVec.normalize());
       staticGroup.add(wire);
       if (s < steps) {
-        bulbCoords.push([curPt.x, curPt.y - 0.06, curPt.z]);
+        // Tiny dark festoon bulb socket bridging directly down from the taut cable into the warm bulb!
+        const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.020, 0.055, 6), cableMat);
+        socket.position.set(curPt.x, curPt.y - 0.026, curPt.z);
+        staticGroup.add(socket);
+        bulbCoords.push([curPt.x, curPt.y - 0.068, curPt.z]);
       }
       prevPt = curPt;
     }
@@ -1075,16 +1089,16 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
     const calfR = new THREE.Mesh(calfGeo, skinM);
 
     if (pose === 'sit') {
-      hips.position.set(0, 0.50, 0);
-      torso.position.set(0, 0.84, -0.02);
-      head.position.set(0, 1.24, 0);
-      hair.position.set(0, 1.26, -0.01);
-      legL.position.set(0.11, 0.50, 0.22); legL.rotation.x = Math.PI * 0.5;
-      legR.position.set(-0.11, 0.50, 0.22); legR.rotation.x = Math.PI * 0.5;
-      calfL.position.set(0.11, 0.24, 0.42);
-      calfR.position.set(-0.11, 0.24, 0.42);
-      armL.position.set(0.21, 0.78, 0.14); armL.rotation.x = -0.65;
-      armR.position.set(-0.21, 0.78, 0.14); armR.rotation.x = -0.65;
+      hips.position.set(0, 0.55, 0);
+      torso.position.set(0, 0.89, -0.02);
+      head.position.set(0, 1.29, 0);
+      hair.position.set(0, 1.31, -0.01);
+      legL.position.set(0.11, 0.55, 0.22); legL.rotation.x = Math.PI * 0.5;
+      legR.position.set(-0.11, 0.55, 0.22); legR.rotation.x = Math.PI * 0.5;
+      calfL.position.set(0.11, 0.27, 0.42);
+      calfR.position.set(-0.11, 0.27, 0.42);
+      armL.position.set(0.21, 0.82, 0.14); armL.rotation.x = -0.65;
+      armR.position.set(-0.21, 0.82, 0.14); armR.rotation.x = -0.65;
     } else {
       hips.position.set(0, 0.88, 0);
       torso.position.set(0, 1.22, 0);

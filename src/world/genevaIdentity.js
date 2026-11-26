@@ -52,13 +52,25 @@ function createSkylineCutoutTexture(label, sub, theme, { twinCrowns = false } = 
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, w, h);
 
-  // Subtle horizontal dark wrought-iron structural mounting bars behind the skyline letters (just like Rolex & Patek in ref_01!)
+  const display = label.toUpperCase();
+  const isShort = display.length <= 10;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = isShort ? 'bold 118px Georgia, serif' : display.length <= 16 ? 'bold 88px Georgia, serif' : 'bold 64px Georgia, serif';
+
+  // Fit wrought-iron structural mounting bars tightly to the actual letter span (zero overhanging empty gantry bars on short signs like UBS!)
+  const measuredW = Math.min(twinCrowns ? w - 120 : w - 100, ctx.measureText(display).width + (twinCrowns ? 280 : 90));
+  const barHalf = Math.max(150, Math.min(w * 0.5 - 36, measuredW * 0.5));
+  const barLeft = Math.round(w * 0.5 - barHalf);
+  const barRight = Math.round(w * 0.5 + barHalf);
   ctx.fillStyle = '#1e2329';
-  ctx.fillRect(36, 178, w - 72, 10);
-  ctx.fillRect(36, 114, w - 72, 6);
-  for (let x = 70; x <= w - 70; x += 110) {
+  ctx.fillRect(barLeft, 178, barRight - barLeft, 10);
+  ctx.fillRect(barLeft, 114, barRight - barLeft, 6);
+  const strutStep = Math.max(90, Math.min(120, Math.round((barRight - barLeft) / Math.max(2, Math.round((barRight - barLeft) / 110)))));
+  for (let x = barLeft + 8; x <= barRight - 8; x += strutStep) {
     ctx.fillRect(x, 114, 7, 134);
   }
+  ctx.fillRect(barRight - 8, 114, 7, 134);
 
   // Optional iconic twin 5-point golden Geneva crowns flanking ROLEX (exact match to ref_01_quai_general_guisan.jpg!)
   function drawGoldCrown(cx, cy, s = 1.0) {
@@ -87,12 +99,6 @@ function createSkylineCutoutTexture(label, sub, theme, { twinCrowns = false } = 
     }
     ctx.restore();
   }
-
-  const display = label.toUpperCase();
-  const isShort = display.length <= 10;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = isShort ? 'bold 118px Georgia, serif' : display.length <= 16 ? 'bold 88px Georgia, serif' : 'bold 64px Georgia, serif';
 
   // Crisp metallic drop-outline + gleaming white/gold face so silhouette letters pop against bright blue sky AND clouds!
   ctx.lineWidth = 11;

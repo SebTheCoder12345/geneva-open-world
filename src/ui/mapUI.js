@@ -240,17 +240,20 @@ export function createMapUI(onSetCustomWaypoint) {
       fctx.drawImage(img, bx0, bz0, spanX * zoom, spanZ * zoom);
     }
 
-    // Landmark labels with crisp dark pill backing
+    // Landmark labels with crisp dark pill backing + smart 2D collision avoidance (zero overlap or top-bar clipping!)
     fctx.font = '700 11.5px "Helvetica Neue", sans-serif';
     fctx.textAlign = 'center';
+    const placedPills = [];
+    const pillOverlaps = (x0, y0, x1, y1) => {
+      if (y0 < 108) return true; // never clip behind top legend bar!
+      for (let i = 0; i < placedPills.length; i++) {
+        const b = placedPills[i];
+        if (x0 < b[2] + 4 && x1 > b[0] - 4 && y0 < b[3] + 3 && y1 > b[1] - 3) return true;
+      }
+      return false;
+    };
     for (const lm of LANDMARKS) {
       const [sx, sy] = toScreen(lm.x, lm.z);
-      const tw = fctx.measureText(lm.name).width + 12;
-      fctx.fillStyle = 'rgba(11, 12, 14, 0.82)';
-      fctx.fillRect(sx - tw * 0.5, sy - 24, tw, 17);
-      fctx.fillStyle = lm.type === 'heli' ? '#ff6b6b' : lm.type === 'boat' ? '#ffe066' : '#ffd27a';
-      fctx.fillText(lm.name, sx, sy - 11);
-
       fctx.fillStyle = lm.type === 'heli' ? '#ff3b3b' : lm.type === 'boat' ? '#ffe033' : '#ffb82e';
       fctx.strokeStyle = '#111';
       fctx.lineWidth = 2;
@@ -258,6 +261,31 @@ export function createMapUI(onSetCustomWaypoint) {
       fctx.arc(sx, sy, 5, 0, Math.PI * 2);
       fctx.fill();
       fctx.stroke();
+
+      const tw = fctx.measureText(lm.name).width + 12;
+      const th = 17;
+      // Try above dot, then below dot, then shifted right/left so neighboring landmarks never overlap!
+      const candidates = [
+        [sx - tw * 0.5, sy - 24],
+        [sx - tw * 0.5, sy + 9],
+        [sx + 10, sy - 9],
+        [sx - tw - 10, sy - 9],
+      ];
+      let chosen = null;
+      for (const [bx, by] of candidates) {
+        if (!pillOverlaps(bx, by, bx + tw, by + th)) {
+          chosen = [bx, by];
+          break;
+        }
+      }
+      if (chosen) {
+        const [bx, by] = chosen;
+        placedPills.push([bx, by, bx + tw, by + th]);
+        fctx.fillStyle = 'rgba(11, 12, 14, 0.84)';
+        fctx.fillRect(bx, by, tw, th);
+        fctx.fillStyle = lm.type === 'heli' ? '#ff6b6b' : lm.type === 'boat' ? '#ffe066' : '#ffd27a';
+        fctx.fillText(lm.name, bx + tw * 0.5, by + 13);
+      }
     }
 
     // Collectibles

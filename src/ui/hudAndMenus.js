@@ -362,8 +362,12 @@ export function createHudAndMenus(callbacks) {
         mission.type === 'freeroam' ? mission.sub : `${mission.sub} · ${Math.round(missionDist)} m`
       );
 
-      setText(els.wpIcon, waypointIcon);
-      setText(els.wpText, waypointText);
+      const wpPillEl = els.wpText?.parentElement;
+      if (wpPillEl) wpPillEl.classList.toggle('hidden', !waypointText);
+      if (waypointText) {
+        setText(els.wpIcon, waypointIcon);
+        setText(els.wpText, waypointText);
+      }
       setText(els.cashDisplay, `CHF ${cash.toLocaleString()}`);
       setText(els.streetPill, street);
 

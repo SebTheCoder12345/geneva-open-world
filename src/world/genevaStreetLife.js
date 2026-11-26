@@ -463,29 +463,48 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
   }
 
   // =================================================================================================
-  // 6. 380 INSTANCED 3D GENEVA STONE CHIMNEYS + TERRACOTTA FLUE POTS ON REAL swissBUILDINGS3D ROOFS!
-  // (Recreates the unmistakable European rooftop chimney skyline seen in ref_01_quai_general_guisan.jpg!)
+  // 6. INSTANCED 3D GENEVA STONE CHIMNEYS + TERRACOTTA FLUE POTS ANCHORED TO EXACT 3D ROOF TRIANGLES!
   // =================================================================================================
   function populateRealRooftopChimneys() {
-    if (!swiss3D?.getRealRoofHeight) return;
+    if (!swiss3D?.sampleRoofHeight && !swiss3D?.getRealRoofHeight) return;
+    const sampleExact = (x, z) => {
+      if (swiss3D.sampleRoofHeight) {
+        return swiss3D.sampleRoofHeight(x, z, Infinity, 0.35);
+      }
+      return swiss3D.getRealRoofHeight(x, z, 3.5);
+    };
     const coords = [];
-    for (let i = 0; i < (realData.buildings || []).length && coords.length < 380; i += 4) {
+    for (let i = 0; i < (realData.buildings || []).length && coords.length < 340; i += 4) {
       const b = realData.buildings[i];
       if (!b.p || b.p.length < 3 || b.h < 12) continue;
       let cx = 0, cz = 0;
       for (const [px, pz] of b.p) { cx += px; cz += pz; }
       cx /= b.p.length; cz /= b.p.length;
       // Keep chimneys off Cathédrale Saint-Pierre, Grand Théâtre & Tour du Molard!
-      if (Math.hypot(cx - -124, cz - 543) < 55) continue;
+      if (Math.hypot(cx - -124, cz - 543) < 62) continue;
       if (Math.hypot(cx - -570, cz - 468) < 48) continue;
-      if (Math.hypot(cx - -150, cz - 229) < 14) continue;
+      if (Math.hypot(cx - -150, cz - 229) < 16) continue;
 
-      const ry = swiss3D.getRealRoofHeight(cx, cz, 8);
-      if (ry === null || ry === undefined || ry < 14) continue;
-      coords.push([cx + ((i % 5) - 2) * 1.4, ry - 0.65, cz + (((i * 3) % 5) - 2) * 1.4, (i % 6) * 0.5]);
-      // Add a paired chimney on large Geneva Haussmann roofs!
-      if (b.p.length >= 6 && coords.length < 380) {
-        coords.push([cx - 3.2, ry - 0.72, cz + 2.4, (i % 4) * 0.7]);
+      const cRoof = sampleExact(cx, cz);
+      if (cRoof === null || cRoof === undefined || cRoof < 14) continue;
+
+      const tryAdd = (tx, tz, yaw) => {
+        // Verify exact 3D roof triangle directly beneath every corner of the chimney (zero floating chimneys!)
+        const ry = sampleExact(tx, tz);
+        const ryA = sampleExact(tx + 0.55, tz);
+        const ryB = sampleExact(tx - 0.55, tz);
+        const ryC = sampleExact(tx, tz + 0.45);
+        const ryD = sampleExact(tx, tz - 0.45);
+        if (ry == null || ryA == null || ryB == null || ryC == null || ryD == null) return;
+        const minR = Math.min(ry, ryA, ryB, ryC, ryD);
+        const maxR = Math.max(ry, ryA, ryB, ryC, ryD);
+        if (maxR - minR > 1.35 || Math.abs(ry - cRoof) > 2.4) return;
+        coords.push([tx, minR - 0.85, tz, yaw]);
+      };
+
+      tryAdd(cx + ((i % 5) - 2) * 1.1, cz + (((i * 3) % 5) - 2) * 1.1, (i % 6) * 0.5);
+      if (b.p.length >= 6 && coords.length < 340) {
+        tryAdd(cx - 2.6, cz + 2.0, (i % 4) * 0.7);
       }
     }
     if (coords.length === 0) return;

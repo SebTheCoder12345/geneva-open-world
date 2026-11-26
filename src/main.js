@@ -175,9 +175,9 @@ const rainPoints = new THREE.Points(
   new THREE.PointsMaterial({
     map: createRainTexture(),
     color: 0xdaf0ff,
-    size: 1.55,
+    size: 0.78,
     transparent: true,
-    opacity: 0.62,
+    opacity: 0.46,
     depthWrite: false,
   })
 );
@@ -471,16 +471,16 @@ const hud = createHudAndMenus({
       player.state.yaw = 0.15;
       camPitch = 0.12;
     } else if (camPreset === 'roof_heli') {
-      // Helicopter landed cleanly on top of the Quai du Général-Guisan landmark rooftop with player standing right beside it!
-      const rx = 74.0;
-      const rz = 266.0;
+      // Helicopter landed cleanly on top of the Quai du Général-Guisan landmark rooftop facing open Lac Léman (clear of UBS gantry!)
+      const rx = 71.0;
+      const rz = 263.5;
       const roofY = world?.sampleRoofHeight ? (world.sampleRoofHeight(rx, rz, Infinity, 1.5) ?? getGroundHeight(rx, rz) + 22) : getGroundHeight(rx, rz) + 22;
       const heli = vehicleMgr.vehicles.find((v) => v.type === 'heli');
       if (heli) {
         heli.x = rx;
         heli.z = rz;
         heli.y = roofY;
-        heli.yaw = -0.35;
+        heli.yaw = 2.45;
         heli.mesh.position.set(heli.x, heli.y, heli.z);
         heli.mesh.rotation.set(0, heli.yaw, 0);
       }
@@ -758,13 +758,7 @@ async function bootRealGeneva() {
 
   hud.setLoadProgress(94, 'Spawning vehicles, pedestrians & Geneva traffic…');
   vehicleMgr = createVehicles(scene);
-  if (vehicleMgr?.group && world?.microDetailGroups) {
-    world.microDetailGroups.push(vehicleMgr.group);
-  }
   player = createPlayer(scene);
-  if (player?.group && world?.microDetailGroups) {
-    world.microDetailGroups.push(player.group);
-  }
   player.teleport('rade');
   hud.setLoadProgress(100, '1:1 Geneva ready.');
   worldReady = true;
@@ -1311,9 +1305,12 @@ const fogDay = new THREE.Color(0x82b2df);
 const fogSunset = new THREE.Color(0xe69564);
 const fogNight = new THREE.Color(0x0c1629);
 const fogRainCol = new THREE.Color(0x465261);
+const fogWinterCol = new THREE.Color(0xcad9e8);
 const sunDayCol = new THREE.Color(0xffefcf);
 const sunSetCol = new THREE.Color(0xff9448);
 const moonNightCol = new THREE.Color(0x8ab8ff);
+const sunWinterCol = new THREE.Color(0xdcebff);
+const lightningCol = new THREE.Color(0xeef6ff);
 const hemiSkyDay = new THREE.Color(0x6ca8e8);
 const hemiSkyNight = new THREE.Color(0x3a61a4);
 const hemiGroundDay = new THREE.Color(0x3b352c);
@@ -1366,7 +1363,7 @@ function updateSkyAndLighting(dt, elapsed) {
   tmpFog.copy(fogNight).lerp(fogDay, dayFactor);
   if (sunsetFactor > 0) tmpFog.lerp(fogSunset, sunsetFactor * 0.36);
   if (settings.rain) tmpFog.lerp(fogRainCol, settings.storm ? 0.78 : 0.55);
-  if (settings.winter) tmpFog.lerp(new THREE.Color(0xcad9e8), 0.45);
+  if (settings.winter) tmpFog.lerp(fogWinterCol, 0.45);
 
   // Periodic dramatic Alpine thunderstorm lightning flashes + rolling thunderclap!
   if (settings.storm && started && !paused) {
@@ -1379,18 +1376,21 @@ function updateSkyAndLighting(dt, elapsed) {
   lightningFlash = Math.max(0, lightningFlash - dt * 3.8);
 
   tmpSunCol.copy(sunDayCol).lerp(sunSetCol, sunsetFactor * 0.45).lerp(moonNightCol, moonBlend);
-  if (settings.winter) tmpSunCol.lerp(new THREE.Color(0xdcebff), 0.32);
-  if (lightningFlash > 0.05) tmpSunCol.lerp(new THREE.Color(0xeef6ff), lightningFlash * 0.85);
+  if (settings.winter) tmpSunCol.lerp(sunWinterCol, 0.32);
+  if (lightningFlash > 0.05) tmpSunCol.lerp(lightningCol, lightningFlash * 0.85);
   sunLight.color.copy(tmpSunCol);
   // Crisp sunlit afternoon (3.29) -> smooth twilight -> balanced silver-blue Alpine moonlight (0.54) so warm streetlamps pop while shadows stay clean!
   const directPower = Math.max(moonBlend * 0.54, 0.20 + dayFactor * 3.09);
   const weatherMul = settings.storm ? 0.42 : settings.rain ? 0.58 : settings.winter ? 0.78 : 1.0;
-  sunLight.intensity = directPower * weatherMul + lightningFlash * 4.2;
+  const insideRoom = Boolean(interiors?.isInside());
+  sunLight.intensity = (directPower * weatherMul + lightningFlash * 4.2) * (insideRoom ? 0.12 : 1.0);
+  scene.environmentIntensity = insideRoom ? 0.22 : 1.0;
+  gtaoPass.enabled = !insideRoom && settings.quality !== 'low';
 
   // Rich nocturnal Alpine skyglow + warm amber Geneva streetlamp bounce on hemisphere light
   hemiLight.color.copy(hemiSkyDay).lerp(hemiSkyNight, nightFactor);
   hemiLight.groundColor.copy(hemiGroundDay).lerp(hemiGroundNight, nightFactor);
-  hemiLight.intensity = 0.38 + nightFactor * 0.12;
+  hemiLight.intensity = insideRoom ? 0.92 : 0.38 + nightFactor * 0.12;
 
   // Filmic camera eye-adaptation: 0.88 calibrated daylight -> 1.10 crisp cinematic midnight without washing out dark sky or windows!
   renderer.toneMappingExposure = 0.88 + nightFactor * 0.22 + sunsetFactor * 0.04;
@@ -1759,12 +1759,24 @@ function animate() {
       const p = getActivePos();
       const rp = rainGeo.attributes.position.array;
       const fallSpd = settings.storm ? 64 : 48;
+      const cx = camera.position.x;
+      const cy = camera.position.y;
+      const cz = camera.position.z;
       for (let i = 0; i < rainCount; i++) {
         rp[i * 3 + 1] -= fallSpd * dt;
-        if (rp[i * 3 + 1] < 0) {
-          rp[i * 3] = p.x + (Math.random() - 0.5) * 120;
+        const dxC = rp[i * 3] - cx;
+        const dyC = rp[i * 3 + 1] - cy;
+        const dzC = rp[i * 3 + 2] - cz;
+        const tooCloseToLens = dxC * dxC + dyC * dyC + dzC * dzC < 30.25; // keep >5.5m from camera lens so zero giant sky quads!
+        if (rp[i * 3 + 1] < 0 || tooCloseToLens) {
+          let rx = p.x + (Math.random() - 0.5) * 120;
+          let rz = p.z + (Math.random() - 0.5) * 120;
+          if (Math.hypot(rx - cx, rz - cz) < 6.5) {
+            rx += rx >= cx ? 7.5 : -7.5;
+          }
+          rp[i * 3] = rx;
           rp[i * 3 + 1] = p.y + 38 + Math.random() * 25;
-          rp[i * 3 + 2] = p.z + (Math.random() - 0.5) * 120;
+          rp[i * 3 + 2] = rz;
         }
       }
       rainGeo.attributes.position.needsUpdate = true;
@@ -1813,9 +1825,10 @@ function animate() {
       const isDriver = activeVehicle.transitMode === 'drive' || (activeVehicle.style === 'bus' && activeVehicle.type !== 'transit_bus');
       let lx = 0, ly = 2.02, lz = 2.75;
       if (isTram) {
-        lx = isDriver ? 0.0 : -0.62;
-        ly = isDriver ? 2.10 : 2.04;
-        lz = isDriver ? 16.95 : 13.06;
+        // Place panoramic cab camera cleanly at the Stadler Tango front windshield nose (zero blocky interior seats or backface voids!)
+        lx = isDriver ? 0.0 : -0.35;
+        ly = isDriver ? 2.12 : 2.10;
+        lz = isDriver ? 17.55 : 17.42;
       } else {
         lx = isDriver ? 0.58 : -0.72;
         ly = isDriver ? 2.06 : 1.98;
@@ -1956,7 +1969,10 @@ function animate() {
 
   const heli = vehicleMgr.vehicles.find((v) => v.type === 'heli');
   let wpIcon = '🚁';
-  let wpText = `HELICOPTER ${Math.round(Math.hypot(pos.x - heli.x, pos.z - heli.z))} m · on your map`;
+  let wpText =
+    activeVehicle?.type === 'heli'
+      ? null
+      : `HELICOPTER ${Math.round(Math.hypot(pos.x - heli.x, pos.z - heli.z))} m · on your map`;
   if (customWaypoint) {
     wpIcon = '📍';
     wpText = `WAYPOINT ${Math.round(Math.hypot(pos.x - customWaypoint.x, pos.z - customWaypoint.z))} m`;

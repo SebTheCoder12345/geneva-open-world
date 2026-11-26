@@ -1093,7 +1093,7 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
   const validBins = [];
   for (const [rx, rz] of binCoords) {
     const dry = snapToDryShore(rx, rz, 2.2);
-    if (dry) validBins.push(dry);
+    if (dry && !isOnAnyRoad(dry[0], dry[1], 1.55)) validBins.push(dry);
   }
   if (validBins.length > 0) {
     const binGreenParts = [];
@@ -1574,7 +1574,7 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
     const hydSpots = [
       [-5.2, 155.8], [3.8, 167.2], [52, 194], [-34, 152], [-88, 156],
       [-128, -142], [18, 142], [74, 174],
-    ].filter(([hx, hz]) => !isOnAnyRoad(hx, hz, 0.35) && !getRawWaterMask(hx, hz));
+    ].filter(([hx, hz]) => !isOnAnyRoad(hx, hz, 1.85) && !getRawWaterMask(hx, hz));
     const hydInst = new THREE.InstancedMesh(hydGeo, hydMat, hydSpots.length);
     hydInst.castShadow = true;
     const hd = new THREE.Object3D();

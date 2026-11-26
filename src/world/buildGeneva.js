@@ -1224,18 +1224,47 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   jetLight.position.set(jetX, 42, jetZ);
   worldGroup.add(jetLight);
 
-  // Volumetric Sunlit Mist Glow Cone piercing through the 140m Jet d'Eau spray!
-  const jetGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xfff5e0,
+  // Volumetric Sunlit Mist Glow Cone piercing through the 140m Jet d'Eau spray (smooth Fresnel edge-fade: zero hard cone silhouette!)
+  const jetGlowMat = new THREE.ShaderMaterial({
     transparent: true,
-    opacity: 0.085,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(0xfff5e0) },
+      uOpacity: { value: 0.085 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormalV;
+      varying vec3 vViewPos;
+      void main() {
+        vUv = uv;
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = -mvPos.xyz;
+        vNormalV = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      varying vec3 vNormalV;
+      varying vec3 vViewPos;
+      void main() {
+        float ndv = abs(dot(normalize(vNormalV), normalize(vViewPos)));
+        float radial = pow(clamp(ndv, 0.0, 1.0), 2.8);
+        float vertical = smoothstep(0.0, 0.22, vUv.y) * smoothstep(1.0, 0.18, vUv.y);
+        float alpha = radial * vertical * uOpacity;
+        if (alpha < 0.002) discard;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
   });
-  const jetRay = new THREE.Mesh(new THREE.CylinderGeometry(8, 28, 145, 16, 1, true), jetGlowMat);
-  jetRay.position.set(jetX + 6, 72, jetZ + 3);
-  jetRay.rotation.z = -0.14;
+  const jetRay = new THREE.Mesh(new THREE.CylinderGeometry(7, 24, 142, 24, 1, true), jetGlowMat);
+  jetRay.position.set(jetX + 4, 71, jetZ + 2);
+  jetRay.rotation.z = -0.10;
   vfxGroup.add(jetRay);
 
   // Sunlit Mist Rainbow Arc shimmering inside the 140m Jet d'Eau spray plume!
@@ -2841,6 +2870,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     if (swiss3DRef?.winterUniform) swiss3DRef.winterUniform.value = winterFactor;
     terrainMat.color.setHex(isWinter ? 0xdde5ef : 0xffffff);
     cobbleMat.color.setHex(isWinter ? 0xd4dce6 : 0xc4c0b8);
+    if (canopies?.material?.color) canopies.material.color.setHex(isWinter ? 0xd0ddec : 0xffffff);
   }
 
   function getDynamicColliders(excludeEntity = null) {

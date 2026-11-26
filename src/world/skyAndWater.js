@@ -115,7 +115,7 @@ export function createSkyDome(scene) {
     `,
   });
 
-  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2800, 32, 20), skyMat);
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2800, 64, 40), skyMat);
   scene.add(skyMesh);
 
   return { skyMesh, skyUniforms };

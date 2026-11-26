@@ -87,13 +87,17 @@ export function createPlayer(scene) {
         const m = mat.clone();
         const n = m.name || '';
         if (/Gold|Watch|Shade|Oxford|Belt|Horn/i.test(n)) {
-          m.envMapIntensity = 1.65;
+          m.envMapIntensity = 1.45;
         } else if (/Tie|Lapel|Pocket/i.test(n)) {
-          m.envMapIntensity = 1.05;
+          m.envMapIntensity = 0.65;
+          if (typeof m.roughness === 'number' && m.roughness < 0.68) m.roughness = 0.72;
         } else if (/Suit|Waistcoat|Shirt|Socks/i.test(n)) {
-          m.envMapIntensity = 0.62;
+          // Matte bespoke Savile Row wool finish (eliminates glossy vertical night-HDRI banding across suit back!)
+          m.envMapIntensity = 0.28;
+          if (typeof m.roughness === 'number' && m.roughness < 0.80) m.roughness = 0.86;
+          if (typeof m.metalness === 'number' && m.metalness > 0.05) m.metalness = 0.02;
         } else {
-          m.envMapIntensity = 0.88;
+          m.envMapIntensity = 0.75;
         }
         return m;
       };
@@ -362,23 +366,29 @@ export function createPlayer(scene) {
           mt.metalness = orig.metalness;
           mt.needsUpdate = true;
         } else {
-          // Crisp Geneva Riviera summer look: vibrant Riviera turquoise swim shorts + crisp white resort linen top!
-          if (/Trouser|Pant|Bottom|Leg/i.test(mn) || /Bottom/i.test(ref.names)) {
+          // Crisp Geneva Riviera summer look: vibrant turquoise swim trunks + sunlit white resort linen top + tan loafers!
+          if (/Banker_SuitTrousers|Trouser|Pant|Bottom|Leg/i.test(mn) || /Outfit_Bottom/i.test(ref.names)) {
             mt.map = null;
-            if (mt.color) mt.color.setHex(0x0f8eb8); // Riviera turquoise-blue swim trunks!
-            mt.roughness = 0.56;
-            mt.metalness = 0.04;
-            mt.needsUpdate = true;
-          } else if (/Suit|Jacket|Top|Shirt/i.test(mn) || /Top/i.test(ref.names)) {
-            mt.map = null;
-            if (mt.color) mt.color.setHex(0xf5f2eb); // Crisp Riviera white linen resort shirt!
-            mt.roughness = 0.68;
+            if (mt.color) mt.color.setHex(0x0d98c4); // Riviera turquoise-blue swim trunks!
+            mt.roughness = 0.62;
             mt.metalness = 0.02;
             mt.needsUpdate = true;
-          } else if (/Oxford|Shoe|Footwear|Socks/i.test(mn) || /Footwear/i.test(ref.names)) {
+          } else if (/Banker_Waistcoat/i.test(mn)) {
+            mt.map = null;
+            if (mt.color) mt.color.setHex(0xe5d4b3); // Warm sand linen vest
+            mt.roughness = 0.74;
+            mt.metalness = 0.01;
+            mt.needsUpdate = true;
+          } else if (/Banker_SuitJacket|Banker_SatinLapel|Banker_CrispShirt|Jacket|Top|Shirt/i.test(mn) || /Outfit_Top/i.test(ref.names)) {
+            mt.map = null;
+            if (mt.color) mt.color.setHex(0xf7f4ec); // Crisp Riviera white linen resort top!
+            mt.roughness = 0.74;
+            mt.metalness = 0.01;
+            mt.needsUpdate = true;
+          } else if (/Banker_OxfordCalfskin|Banker_DressSocks|Oxford|Shoe|Footwear|Socks/i.test(mn) || /Outfit_Footwear/i.test(ref.names)) {
             mt.map = null;
             if (mt.color) mt.color.setHex(0xc99c6b); // Tan Riviera loafers / sandals
-            mt.roughness = 0.66;
+            mt.roughness = 0.68;
             mt.metalness = 0.02;
             mt.needsUpdate = true;
           }

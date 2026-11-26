@@ -282,13 +282,15 @@ function getSharedVehicleMats() {
 function getCarPaintMat(colorHex) {
   let mat = _carPaintCache.get(colorHex);
   if (!mat) {
+    // Keep commercial Swiss Post yellow & fleet white vans realistic satin enamel (never mirror-gold chrome!)
+    const isCommercial = colorHex === 0xf5b800 || colorHex === 0xe8b500 || colorHex === 0xf2c200 || colorHex === 0xffcc00 || colorHex === 0xf0f2f5;
     mat = new THREE.MeshPhysicalMaterial({
       color: colorHex,
-      metalness: 0.56,
-      roughness: 0.13,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.025,
-      envMapIntensity: 1.85,
+      metalness: isCommercial ? 0.12 : 0.48,
+      roughness: isCommercial ? 0.36 : 0.15,
+      clearcoat: isCommercial ? 0.32 : 1.0,
+      clearcoatRoughness: isCommercial ? 0.16 : 0.03,
+      envMapIntensity: isCommercial ? 0.78 : 1.65,
     });
     _carPaintCache.set(colorHex, mat);
   }

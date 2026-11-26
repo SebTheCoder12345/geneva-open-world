@@ -462,12 +462,6 @@ export function createVehicles(scene) {
       wheelMeshes = es.wheelMeshes;
       shadowMeshes = es.shadowMeshes;
       tailMat = es.tailMat;
-    } else if (d.style === 'coupe' || d.style === 'police' || d.style === 'taxi') {
-      for (const sx of [-0.62, 0.62]) {
-        const tl = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), tailMat);
-        tl.position.set(sx, 0.78, -2.14);
-        chassis.add(tl);
-      }
     }
 
     // Cobalt-Blue Neon Underglow + Nitro Exhaust Flame Cone on Ferrari 458 (inspired by Reference 2!)
