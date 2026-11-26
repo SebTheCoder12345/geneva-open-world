@@ -12,7 +12,7 @@ import { buildGenevaIdentity } from './world/genevaIdentity.js';
 import { buildGenevaStreetLife } from './world/genevaStreetLife.js';
 import { createGenevaInteriors } from './world/genevaInteriors.js';
 import { createSkyDome, createEnvironmentMap } from './world/skyAndWater.js';
-import { createGtaPostPass } from './world/gtaPostFX.js';
+import { createGtaPostPass, createHdrSanitizePass } from './world/gtaPostFX.js';
 import { createRainTexture, loadPhotoPBRBundle } from './world/textures.js';
 import {
   MISSIONS,
@@ -58,6 +58,8 @@ const composerTarget = new THREE.WebGLRenderTarget(
   { type: THREE.HalfFloatType, samples: 4 }
 );
 const composer = new EffectComposer(renderer, composerTarget);
+composer.setPixelRatio(initPr);
+composer.setSize(window.innerWidth, window.innerHeight);
 composer.addPass(new RenderPass(scene, camera));
 
 const gtaoW = Math.max(320, Math.floor(window.innerWidth * 0.5));
@@ -105,6 +107,8 @@ gtaoPass.render = (ren, writeBuf, readBuf, delta, mask) => {
   }
 };
 composer.addPass(gtaoPass);
+// Sanitize any NaN / +Inf FP16 pixels BEFORE UnrealBloomPass so bloom's 5-level Gaussian pyramid can NEVER flicker black boxes!
+composer.addPass(createHdrSanitizePass());
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth * 0.5), Math.floor(window.innerHeight * 0.5)),
@@ -673,6 +677,7 @@ function loadImage(url) {
 async function bootRealGeneva() {
   hud.setLoadProgress(6, 'Loading 2K Day/Sunset/Night HDRIs & Poly Haven PBR textures…');
   const rgbeLoader = new RGBELoader();
+  rgbeLoader.setDataType(THREE.FloatType);
 
   const [realData, streetFeatures, realPlaces, pedZonesData, buildingsMeta, orthoImg, topoImg, photoBundle, hdrDay, hdrSunset, hdrNight] = await Promise.all([
     fetch('data/geneva-1to1.json').then((r) => r.json()),
@@ -696,6 +701,16 @@ async function bootRealGeneva() {
     ['night', hdrNight],
   ]) {
     if (tex) {
+      // Clamp extreme HDRI sun radiance pixels (<= 16.0) & strip any NaN/Inf so FP16 HalfFloat render targets NEVER overflow!
+      const arr = tex.image?.data;
+      if (arr && arr.length) {
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i];
+          if (!Number.isFinite(v) || v < 0) arr[i] = 0;
+          else if (v > 16.0) arr[i] = 16.0;
+        }
+        tex.needsUpdate = true;
+      }
       tex.mapping = THREE.EquirectangularReflectionMapping;
       hdris[k] = tex;
       hdrEnvMaps[k] = pmremGen.fromEquirectangular(tex).texture;

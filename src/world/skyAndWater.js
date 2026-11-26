@@ -156,7 +156,7 @@ export function createRealisticWater(scene) {
     .replace('float rf0 = 0.3;', 'float rf0 = 0.04;')
     .replace(
       'vec3 surfaceNormal = normalize( noise.xzy * vec3( 1.5, 1.0, 1.5 ) );',
-      'vec3 surfaceNormal = normalize( noise.xzy * vec3( 2.15, 1.0, 2.15 ) );'
+      'vec3 surfaceNormal = normalize( noise.xzy * vec3( 2.15, 1.0, 2.15 ) + vec3( 0.0, 0.002, 0.0 ) );'
     )
     .replace(
       'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
@@ -170,9 +170,11 @@ export function createRealisticWater(scene) {
        vec3 baseLakeCol = mix(dayLakeCol, nightLakeCol, uNightFactor);
        vec3 deepTint = mix(baseLakeCol * 0.72, baseLakeCol * 1.48, clamp(surfaceNormal.y, 0.0, 1.0));
        float waveFoam = smoothstep(0.62, 0.95, length(surfaceNormal.xz)) * mix(0.14, 0.025, uNightFactor);
-       vec3 refracted = (sunColor * diffuseLight * 0.24 + deepTint * (0.68 + 0.32 * max(0.0, dot(surfaceNormal, eyeDirection)))) * getShadowMask();
-       vec3 reflected = reflectionSample * mix(0.94, 0.98, uNightFactor) + sunColor * specularLight * mix(1.35, 1.15, uNightFactor) + vec3(waveFoam);
-       vec3 albedo = mix(refracted, reflected, clamp(reflectance * 0.90, 0.06, 0.90));`
+       vec3 safeRefl = clamp(max(reflectionSample, vec3(0.0)), vec3(0.0), vec3(6.0));
+       vec3 safeSpec = clamp(max(specularLight, vec3(0.0)), vec3(0.0), vec3(6.0));
+       vec3 refracted = (sunColor * clamp(diffuseLight, vec3(0.0), vec3(4.0)) * 0.24 + deepTint * (0.68 + 0.32 * max(0.0, dot(surfaceNormal, eyeDirection)))) * getShadowMask();
+       vec3 reflected = safeRefl * mix(0.94, 0.98, uNightFactor) + sunColor * safeSpec * mix(1.35, 1.15, uNightFactor) + vec3(waveFoam);
+       vec3 albedo = clamp(mix(refracted, reflected, clamp(reflectance * 0.90, 0.06, 0.90)), vec3(0.0), vec3(8.0));`
     )
     // OutputPass in EffectComposer already applies ACESFilmicToneMapping + sRGB encoding — strip duplicate pass!
     .replace('#include <tonemapping_fragment>', '')

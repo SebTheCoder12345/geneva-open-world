@@ -1,6 +1,37 @@
 import * as THREE from 'three';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
+// Ultra-fast HDR NaN / Infinity / FP16-overflow sanitizer pass placed directly before UnrealBloomPass.
+// Prevents a single NaN or +Inf pixel (from HDRI sun pixels, grazing water speculars, or GTAO denoise)
+// from smearing into a huge flickering pure-black rectangle across UnrealBloomPass's 5-level Gaussian pyramid!
+export function createHdrSanitizePass() {
+  return new ShaderPass({
+    uniforms: {
+      tDiffuse: { value: null },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      varying vec2 vUv;
+      float cleanChannel(float v) {
+        // Fails cleanly for NaN, +Inf, -Inf & negative garbage on every WebGL1/WebGL2/ANGLE driver
+        return (v >= 0.0 && v <= 60000.0) ? min(v, 10.0) : 0.0;
+      }
+      void main() {
+        vec4 texel = texture2D(tDiffuse, vUv);
+        vec3 safeRgb = vec3(cleanChannel(texel.r), cleanChannel(texel.g), cleanChannel(texel.b));
+        gl_FragColor = vec4(safeRgb, 1.0);
+      }
+    `,
+  });
+}
+
 // GTA 6 / AAA Filmic Post-FX:
 // - Center-Masked Peripheral Radial Speed Blur + Camera-Pan Velocity Motion Blur (0 extra taps at idle!)
 // - Luminance-Clamped CAS Micro-Sharpening (zero halo ringing on snow ridges or leaves)
@@ -99,7 +130,13 @@ export function createGtaPostPass() {
           col = mix(col, pulseCol, edge * uWantedFlash * 0.22);
         }
 
-        gl_FragColor = vec4(col, 1.0);
+        // Final NaN/Inf guard so no corrupted sample can ever black out a pixel
+        col = vec3(
+          (col.r >= 0.0 && col.r <= 2.0) ? col.r : 0.0,
+          (col.g >= 0.0 && col.g <= 2.0) ? col.g : 0.0,
+          (col.b >= 0.0 && col.b <= 2.0) ? col.b : 0.0
+        );
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }
     `,
   };
