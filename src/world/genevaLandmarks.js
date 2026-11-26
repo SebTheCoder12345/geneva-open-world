@@ -258,7 +258,42 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
     color: 0x9b9282,
     roughness: 0.84,
   });
-  const oakPortalMat = new THREE.MeshStandardMaterial({ color: 0x382519, roughness: 0.72, metalness: 0.14 });
+  // Rich carved medieval walnut-oak portal texture (prevents Tour du Molard & Cathedral portals from reading as pitch-black!)
+  const oakCan = document.createElement('canvas');
+  oakCan.width = 256;
+  oakCan.height = 512;
+  const octx = oakCan.getContext('2d');
+  octx.fillStyle = '#6c472b';
+  octx.fillRect(0, 0, 256, 512);
+  for (let px = 0; px < 256; px += 32) {
+    octx.fillStyle = px % 64 === 0 ? 'rgba(255,232,200,0.08)' : 'rgba(28,14,6,0.12)';
+    octx.fillRect(px, 0, 30, 512);
+    octx.fillStyle = 'rgba(24,14,6,0.42)';
+    octx.fillRect(px, 0, 2.5, 512);
+  }
+  // Carved recessed oak panels & wrought-iron horizontal medieval hinge straps
+  octx.strokeStyle = '#926844';
+  octx.lineWidth = 6;
+  octx.strokeRect(20, 48, 96, 172);
+  octx.strokeRect(140, 48, 96, 172);
+  octx.strokeRect(20, 252, 96, 210);
+  octx.strokeRect(140, 252, 96, 210);
+  octx.fillStyle = '#24272c';
+  octx.fillRect(0, 128, 256, 14);
+  octx.fillRect(0, 356, 256, 14);
+  octx.fillRect(125, 0, 6, 512);
+  // Antique brass ring handles
+  octx.strokeStyle = '#d9b562';
+  octx.lineWidth = 5;
+  octx.beginPath();
+  octx.arc(104, 290, 12, 0, Math.PI * 2);
+  octx.stroke();
+  octx.beginPath();
+  octx.arc(152, 290, 12, 0, Math.PI * 2);
+  octx.stroke();
+  const oakTex = new THREE.CanvasTexture(oakCan);
+  oakTex.colorSpace = THREE.SRGBColorSpace;
+  const oakPortalMat = new THREE.MeshStandardMaterial({ map: oakTex, roughness: 0.68, metalness: 0.14 });
   const bronzeMat = new THREE.MeshStandardMaterial({ color: 0x262c27, roughness: 0.34, metalness: 0.84 });
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xe0b958, roughness: 0.24, metalness: 0.88 });
   const ironGreenMat = new THREE.MeshStandardMaterial({ color: 0x1b3328, roughness: 0.38, metalness: 0.80 });
@@ -301,7 +336,7 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
     const tiltQuat = new THREE.Quaternion();
     for (let i = 0; i < paverSpots.length; i++) {
       const [px, pz, word] = paverSpots[i];
-      const py = getGroundHeight(px, pz) + 0.168;
+      const py = getGroundHeight(px, pz) + 0.272;
       // Match exact Place du Molard cobble slope so ZERO glowing blue pavers ever hover off sloped terrain!
       const hL = getGroundHeight(px - 0.7, pz);
       const hR = getGroundHeight(px + 0.7, pz);
@@ -345,10 +380,7 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
       lmGroup.add(tile);
     }
 
-    // Tour du Molard (-150.4, 228.9) Medieval Clock Dials & Geneva Coat of Arms Relief on South & North Faces!
-    const tmX = -150.4;
-    const tmZ = 228.9;
-    const tmY = getGroundHeight(tmX, tmZ);
+    // Tour du Molard Clock Dial Canvas Texture (used on flush South & North tower faces below!)
     const clockC = document.createElement('canvas');
     clockC.width = 256;
     clockC.height = 256;
@@ -386,68 +418,58 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
     });
     nightPaverMats.push(tmClockMat);
 
+    // Tour du Molard Medieval Clock Dials & Geneva Coat of Arms Relief bolted FLUSH to the EXACT measured
+    // South (Place du Molard) and North (Rue du Rhône) faces of the real swisstopo tower polygon (ZERO floating quoins or neighbor clipping!)
     const crestTex = makeInscribedPlaque('TOUR DU MOLARD', 'GENEVA CIVITAS REFUGII · 1591', '#8b242a', '#f2cf78', 512, 160);
     const crestMat = new THREE.MeshStandardMaterial({ map: crestTex, roughness: 0.65 });
+    const tmY = getGroundHeight(-150.1, 228.3);
 
-    const tmGroup = new THREE.Group();
-    tmGroup.position.set(tmX, tmY, tmZ);
-    tmGroup.rotation.y = -0.538; // exact outward normal of Tour du Molard South facade facing Place du Molard!
-    const darkArchMat = new THREE.MeshStandardMaterial({ color: 0x16191e, roughness: 0.85 });
-    for (const side of [1, -1]) {
-      const dial = new THREE.Mesh(new THREE.CircleGeometry(1.55, 24), tmClockMat);
-      dial.position.set(0, 14.5, side * 4.32);
-      if (side < 0) dial.rotation.y = Math.PI;
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(1.62, 0.14, 10, 24), goldMat);
-      rim.position.set(0, 14.5, side * 4.29);
-      const relief = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.32, 0.24), crestMat);
-      relief.position.set(0, 10.4, side * 4.26);
+    const tourFaces = [
+      // South facade facing Place du Molard (exact OSM edge [-148.7, 233.8] -> [-154.4, 230.4], width 6.64m!)
+      { x: -151.55, z: 232.10, yaw: -0.537, width: 5.4, hasPortal: true },
+      // North facade facing Rue du Rhône (exact OSM edge [-152.4, 222.7] -> [-144.8, 226.3], width 8.41m!)
+      { x: -148.60, z: 224.50, yaw: 2.699, width: 6.2, hasPortal: false },
+    ];
 
-      // Vaulted medieval Gothic stone entrance portal at the base of Tour du Molard + dressed stone voussoir surround!
-      const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.4, 4.3, 0.34), limestoneMat);
-      archFrame.position.set(0, 2.2, side * 4.18);
-      const archDoor = new THREE.Mesh(new THREE.BoxGeometry(2.35, 3.6, 0.38), side > 0 ? oakPortalMat : darkArchMat);
-      archDoor.position.set(0, 1.85, side * 4.20);
-      const archTop = new THREE.Mesh(new THREE.CylinderGeometry(1.18, 1.18, 0.40, 16).rotateX(Math.PI / 2), side > 0 ? oakPortalMat : darkArchMat);
-      archTop.position.set(0, 3.62, side * 4.20);
-      const archRing = new THREE.Mesh(new THREE.TorusGeometry(1.32, 0.16, 8, 16, Math.PI), limestoneMat);
-      archRing.position.set(0, 3.62, side * 4.24);
-      if (side < 0) archRing.rotation.y = Math.PI;
+    for (const face of tourFaces) {
+      const fg = new THREE.Group();
+      fg.position.set(face.x, tmY, face.z);
+      fg.rotation.y = face.yaw;
 
-      // Twin medieval arched mullioned windows on the middle tower story!
-      for (const wx of [-2.1, 2.1]) {
-        const wFrame = new THREE.Mesh(new THREE.BoxGeometry(1.18, 1.95, 0.24), limestoneMat);
-        wFrame.position.set(wx, 6.8, side * 4.20);
-        const wGlass = new THREE.Mesh(new THREE.BoxGeometry(0.84, 1.58, 0.28), darkArchMat);
-        wGlass.position.set(wx, 6.8, side * 4.22);
-        tmGroup.add(wFrame, wGlass);
+      // Illuminated 16th-century Tour du Molard clock dial & gold bezel sitting flush on tower facade
+      const dial = new THREE.Mesh(new THREE.CircleGeometry(1.32, 24), tmClockMat);
+      dial.position.set(0, 14.2, 0.22);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(1.38, 0.12, 10, 24), goldMat);
+      rim.position.set(0, 14.2, 0.18);
+      // Geneva Civitas Refugii carved stone & heraldic crest plaque
+      const relief = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.18, 0.18), crestMat);
+      relief.position.set(0, 10.4, 0.12);
+      // Medieval stone machicolation corbel belt flush along upper face
+      const corbHalf = face.width * 0.46;
+      for (let cx = -corbHalf; cx <= corbHalf + 0.05; cx += 0.92) {
+        const corbel = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.62, 0.28), limestoneMat);
+        corbel.position.set(cx, 12.25, 0.14);
+        fg.add(corbel);
+      }
+      const belt = new THREE.Mesh(new THREE.BoxGeometry(face.width, 0.28, 0.30), limestoneMat);
+      belt.position.set(0, 12.64, 0.15);
+      fg.add(dial, rim, relief, belt);
+
+      // Vaulted Gothic carved-oak portal ONLY on the open Place du Molard South face (NEVER protruding!)
+      if (face.hasPortal) {
+        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.1, 4.1, 0.22), limestoneMat);
+        archFrame.position.set(0, 2.05, 0.08);
+        const archDoor = new THREE.Mesh(new THREE.BoxGeometry(2.15, 3.45, 0.24), oakPortalMat);
+        archDoor.position.set(0, 1.78, 0.11);
+        const archTop = new THREE.Mesh(new THREE.CylinderGeometry(1.075, 1.075, 0.24, 16).rotateX(Math.PI / 2), oakPortalMat);
+        archTop.position.set(0, 3.50, 0.11);
+        const archRing = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.14, 8, 16, Math.PI), limestoneMat);
+        archRing.position.set(0, 3.50, 0.16);
+        fg.add(archFrame, archDoor, archTop, archRing);
       }
 
-      // Medieval stone machicolation corbel belt wrapping beneath the dark slate turret roof!
-      for (let cx = -3.8; cx <= 3.81; cx += 1.08) {
-        const corbel = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.72, 0.46), limestoneMat);
-        corbel.position.set(cx, 12.65, side * 4.28);
-        tmGroup.add(corbel);
-      }
-      const belt = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.34, 0.48), limestoneMat);
-      belt.position.set(0, 13.08, side * 4.28);
-      tmGroup.add(dial, rim, relief, archFrame, archDoor, archTop, archRing, belt);
+      lmGroup.add(fg);
     }
-
-    // Alternating medieval dressed stone corner quoins climbing all 4 corners of Tour du Molard!
-    for (const qx of [-4.22, 4.22]) {
-      for (const qz of [-4.05, 4.05]) {
-        for (let qy = 0.8; qy < 12.6; qy += 1.15) {
-          const isWide = Math.round(qy) % 2 === 0;
-          const quoin = new THREE.Mesh(
-            new THREE.BoxGeometry(isWide ? 0.68 : 0.46, 0.56, isWide ? 0.46 : 0.68),
-            limestoneMat
-          );
-          quoin.position.set(qx, qy, qz);
-          tmGroup.add(quoin);
-        }
-      }
-    }
-    lmGroup.add(tmGroup);
   }
 
   // =================================================================================================
@@ -1149,104 +1171,57 @@ export function buildGenevaLandmarks(worldGroup, vfxGroup, insertCollider, photo
     const bfZ = 632.4;
     const bfY = getGroundHeight(bfX, bfZ);
     const bf = new THREE.Group();
-    bf.position.set(bfX, bfY + 0.14, bfZ);
+    bf.position.set(bfX, bfY + 0.24, bfZ);
 
-    const bfBasin = new THREE.Mesh(new THREE.CylinderGeometry(2.65, 2.95, 0.96, 12), graniteMat);
+    const bfBasin = new THREE.Mesh(new THREE.CylinderGeometry(2.65, 2.95, 0.96, 16), graniteMat);
     bfBasin.position.y = 0.48;
     bfBasin.castShadow = true;
     bfBasin.receiveShadow = true;
-    const bfRim = new THREE.Mesh(new THREE.TorusGeometry(2.62, 0.24, 8, 16).rotateX(Math.PI / 2), limestoneMat);
+    const bfRim = new THREE.Mesh(new THREE.TorusGeometry(2.62, 0.22, 10, 24).rotateX(Math.PI / 2), limestoneMat);
     bfRim.position.y = 0.96;
-    const bfWater = new THREE.Mesh(new THREE.CircleGeometry(2.48, 16).rotateX(-Math.PI / 2), waterPoolMat);
-    bfWater.position.y = 0.88;
-    const bfObelisk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.56, 3.65, 8), limestoneMat);
-    bfObelisk.position.y = 2.15;
+    const bfWater = new THREE.Mesh(new THREE.CircleGeometry(2.48, 24).rotateX(-Math.PI / 2), waterPoolMat);
+    bfWater.position.y = 0.92;
+    // Stepped carved limestone base plinth + fluted 18th-century obelisk + molded cornice cap + sculpted stone urn!
+    const bfPlinth = new THREE.Mesh(new THREE.BoxGeometry(1.38, 1.15, 1.38), graniteMat);
+    bfPlinth.position.y = 0.85;
+    const bfObelisk = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.44, 3.15, 8), limestoneMat);
+    bfObelisk.position.y = 2.65;
     bfObelisk.castShadow = true;
-    const bfUrn = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), graniteMat);
-    bfUrn.position.y = 4.18;
-    // Iconic vibrant red & pink Geneva geraniums cascading around the Bourg-de-Four fountain pillar!
-    const gerRed = new THREE.MeshStandardMaterial({ color: 0xd6243a, roughness: 0.78 });
-    const gerPink = new THREE.MeshStandardMaterial({ color: 0xe66284, roughness: 0.78 });
-    const gerLeaf = new THREE.MeshStandardMaterial({ color: 0x2d622b, roughness: 0.88 });
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
-      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.44, 8, 6), gerLeaf);
-      leaf.position.set(Math.cos(a) * 0.72, 1.38, Math.sin(a) * 0.72);
-      const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), k % 2 === 0 ? gerRed : gerPink);
-      bloom.position.set(Math.cos(a) * 0.88, 1.62, Math.sin(a) * 0.88);
+    const bfCap = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.28, 0.26, 8), graniteMat);
+    bfCap.position.y = 4.28;
+    const bfUrn = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), limestoneMat);
+    bfUrn.scale.set(1, 1.35, 1);
+    bfUrn.position.y = 4.65;
+    // Twin historic bronze fountain spouts & shimmering water arcs splashing into the basin!
+    const spoutStreamMat = new THREE.MeshBasicMaterial({ color: 0xdff5ff, transparent: true, opacity: 0.65 });
+    for (const side of [-1, 1]) {
+      const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.48, 8).rotateZ(Math.PI * 0.5), bronzeMat);
+      spout.position.set(side * 0.68, 1.72, 0);
+      const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.048, 0.82, 8), spoutStreamMat);
+      stream.position.set(side * 0.96, 1.32, 0);
+      stream.rotation.z = side * 0.22;
+      bf.add(spout, stream);
+    }
+    // Delicate clustered Geneva geranium foliage & fine multi-blossom florets around the carved plinth!
+    const gerRed = new THREE.MeshStandardMaterial({ color: 0xc82034, roughness: 0.80 });
+    const gerCoral = new THREE.MeshStandardMaterial({ color: 0xe25468, roughness: 0.80 });
+    const gerLeaf = new THREE.MeshStandardMaterial({ color: 0x264e24, roughness: 0.90 });
+    for (let k = 0; k < 14; k++) {
+      const a = (k / 14) * Math.PI * 2;
+      const rad = 0.66 + (k % 2) * 0.16;
+      const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 1), gerLeaf);
+      leaf.scale.set(1.2, 0.72, 1.2);
+      leaf.position.set(Math.cos(a) * rad, 1.34 + (k % 3) * 0.06, Math.sin(a) * rad);
+      const bloom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.095, 1), k % 2 === 0 ? gerRed : gerCoral);
+      bloom.position.set(Math.cos(a) * (rad + 0.08), 1.50 + (k % 3) * 0.07, Math.sin(a) * (rad + 0.08));
       bf.add(leaf, bloom);
     }
-    bf.add(bfBasin, bfRim, bfWater, bfObelisk, bfUrn);
+    bf.add(bfBasin, bfRim, bfWater, bfPlinth, bfObelisk, bfCap, bfUrn);
     lmGroup.add(bf);
-    insertCollider({ kind: 'cyl', x: bfX, z: bfZ, r: 2.9, maxY: bfY + 4.5, walkableTop: false });
+    insertCollider({ kind: 'cyl', x: bfX, z: bfZ, r: 2.9, maxY: bfY + 4.8, walkableTop: false });
   }
 
-  // =================================================================================================
-  // 7. BAINS DES PÂQUIS — TIMBER BATHING DECKS, BUVETTE/SAUNA PAVILION & 10M DIVING BOARD TOWER!
-  // =================================================================================================
-  {
-    const bpX = 445.0;
-    const bpZ = -504.0;
-    const bp = new THREE.Group();
-    bp.position.set(bpX, 1.65, bpZ);
-    bp.rotation.y = 1.24; // aligned seamlessly along the Bains des Pâquis lakeside jetty toward Le Phare!
-
-    // Sun-weathered lakeside wooden bathing sundeck
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(22.0, 0.36, 46.0), timberMat);
-    deck.position.set(0, -0.1, 0);
-    deck.receiveShadow = true;
-    bp.add(deck);
-
-    // Classic wooden Buvette des Bains & Sauna pavilion with pitched timber roof
-    const buvette = new THREE.Mesh(new THREE.BoxGeometry(10.5, 3.8, 16.5), timberMat);
-    buvette.position.set(-4.2, 1.9, -4.0);
-    buvette.castShadow = true;
-    buvette.receiveShadow = true;
-    const roof = new THREE.Mesh(
-      new THREE.ConeGeometry(10.2, 2.8, 4).rotateY(Math.PI / 4),
-      new THREE.MeshStandardMaterial({ color: 0x3b444e, roughness: 0.72 })
-    );
-    roof.scale.set(0.85, 1, 1.35);
-    roof.position.set(-4.2, 5.1, -4.0);
-    roof.castShadow = true;
-    const bSign = new THREE.Mesh(
-      new THREE.BoxGeometry(5.6, 0.85, 0.14),
-      new THREE.MeshStandardMaterial({
-        map: makeInscribedPlaque('BAINS DES PÂQUIS', 'BUVETTE · SAUNA · GENÈVE', '#143b6b', '#ffffff'),
-        roughness: 0.4,
-      })
-    );
-    bSign.position.set(1.12, 3.35, -4.0);
-    bSign.rotation.y = Math.PI * 0.5;
-    bp.add(buvette, roof, bSign);
-
-    // Iconic 10m Bains des Pâquis Multi-Tier Diving Board Tower (3m, 5m & 10m planks over Lac Léman!)
-    const whiteSteel = new THREE.MeshStandardMaterial({ color: 0xedf2f7, roughness: 0.35, metalness: 0.55 });
-    const diveGroup = new THREE.Group();
-    diveGroup.position.set(9.8, 0, 14.5);
-    for (const sx of [-0.9, 0.9]) {
-      for (const sz of [-0.9, 0.9]) {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 10.2, 8), whiteSteel);
-        leg.position.set(sx, 5.1, sz);
-        leg.castShadow = true;
-        diveGroup.add(leg);
-      }
-    }
-    for (const [py, len] of [[3.0, 3.4], [5.4, 3.8], [9.8, 4.4]]) {
-      const plat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 2.2), whiteSteel);
-      plat.position.set(0, py, 0);
-      const board = new THREE.Mesh(
-        new THREE.BoxGeometry(0.68, 0.10, len),
-        new THREE.MeshStandardMaterial({ color: 0x2268a8, roughness: 0.5 })
-      );
-      board.position.set(len * 0.5, py + 0.12, 0);
-      board.rotation.y = Math.PI * 0.5;
-      board.castShadow = true;
-      diveGroup.add(plat, board);
-    }
-    bp.add(diveGroup);
-    lmGroup.add(bp);
-  }
+  // (Section 7: Bains des Pâquis is built in dedicated lively summer module src/world/bainsDesPaquis.js!)
 
   // Merge all static stone, marble, granite, bronze, gold & timber monument parts by material (~420 draw calls -> ~16 draw calls!)
   // Keep ONLY animated Horloge Fleurie clock hands & Fontaine des Quatre-Saisons water spray rings unbatched!

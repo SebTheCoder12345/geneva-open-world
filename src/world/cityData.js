@@ -34,6 +34,12 @@ export const SPAWNS = {
     z: 495,
     yaw: 0.7,
   },
+  bains: {
+    name: 'Bains des Pâquis',
+    x: 422,
+    z: -512,
+    yaw: 1.24,
+  },
 };
 
 // All vehicles precisely parallel-parked along real OSM Geneva curbs (0.0° road-tangent alignment, zero lane/crosswalk blocking!)
@@ -340,8 +346,9 @@ export function isSolidJetty(x, z) {
   // Jetée des Eaux-Vives (to Jet d'Eau)
   if (distToSegment(x, z, 558, 25, 457.8, -147.0) < 10.5) return true;
   if (Math.hypot(x - 457.8, z - -147.0) < 16) return true;
-  // Bains des Pâquis Jetty & Lighthouse
+  // Bains des Pâquis Jetty, Expanded Bathing Pier & Lighthouse
   if (distToSegment(x, z, 280, -560, 571.1, -463.1) < 12) return true;
+  if (distToSegment(x, z, 392, -522, 502, -485) < 18.0) return true;
   return false;
 }
 
@@ -444,6 +451,7 @@ export function getGroundHeight(x, z) {
 export function getStreetName(x, z, y = 2) {
   if (y > 38) return 'GENEVA AIRSPACE · LAC LÉMAN';
   if (Math.hypot(x - 457.8, z - -147.0) < 35) return "JET D'EAU · JETÉE DES EAUX-VIVES";
+  if (distToSegment(x, z, 375, -528, 520, -478) < 42) return 'BAINS DES PÂQUIS · PLAGE & BUVETTE';
   if (Math.hypot(x - 571.1, z - -463.1) < 55) return 'BAINS DES PÂQUIS · LE PHARE';
   if (Math.hypot(x - -181.3, z - -8.5) < 32) return 'ÎLE ROUSSEAU';
   if (isWater(x, z)) return x < -220 ? 'LE RHÔNE · GENÈVE' : 'LAC LÉMAN · LA RADE DE GENÈVE';

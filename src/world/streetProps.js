@@ -120,13 +120,20 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
     return false;
   }
 
-  // 1. TERRAIN-FOLLOWING 3D GRANITE SIDEWALK CURBS + AMBER ROAD REFLECTORS (Zero floating beams or crossing cuts!)
-  const primaryRoads = (realData.roads || []).filter((r) => r.p && r.p.length >= 2 && (r.k === 'primary' || r.k === 'trunk'));
-  // Collect all primary road segments to skip curb blocks that cut across an intersecting road carriageway!
+  // 1. TERRAIN-FOLLOWING 3D RAISED GRANITE SIDEWALK CURBS ON ALL URBAN GENEVA ROADS (Primary, Secondary, Tertiary & Central Residential!)
+  // Fixes flush curb-less sidewalks on Rue du Rhône, Rue Robert-Céard, Rive & Vieille-Ville!
+  const curbedRoads = (realData.roads || []).filter(
+    (r) =>
+      r.p &&
+      r.p.length >= 2 &&
+      !r.br &&
+      (r.k === 'primary' || r.k === 'trunk' || r.k === 'secondary' || r.k === 'tertiary' || r.k === 'residential')
+  );
+  // Collect ALL vehicular road segments so curbs cleanly break at EVERY cross-street intersection!
   const roadSegs = [];
-  for (let ri = 0; ri < primaryRoads.length; ri++) {
-    const r = primaryRoads[ri];
-    const hw = (r.w || 9.0) * 0.5;
+  for (let ri = 0; ri < curbedRoads.length; ri++) {
+    const r = curbedRoads[ri];
+    const hw = (r.w || 8.0) * 0.5;
     for (let i = 0; i < r.p.length - 1; i++) {
       roadSegs.push({ ri, x1: r.p[i][0], z1: r.p[i][1], x2: r.p[i + 1][0], z2: r.p[i + 1][1], hw });
     }
@@ -150,20 +157,21 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
 
   const curbPositions = [];
   const reflectorPositions = [];
-  for (let ri = 0; ri < primaryRoads.length; ri++) {
-    const r = primaryRoads[ri];
-    if (r.br) continue; // bridges already have carved stone parapets!
-    const halfW = (r.w || 9.0) * 0.5;
+  for (let ri = 0; ri < curbedRoads.length; ri++) {
+    const r = curbedRoads[ri];
+    const isPrimary = r.k === 'primary' || r.k === 'trunk';
+    const maxRadius = isPrimary ? 560 : r.k === 'secondary' ? 480 : 340;
+    const halfW = (r.w || 8.0) * 0.5;
     for (let i = 0; i < r.p.length - 1; i++) {
       const [x1, z1] = r.p[i];
       const [x2, z2] = r.p[i + 1];
       const dx = x2 - x1;
       const dz = z2 - z1;
       const segLen = Math.hypot(dx, dz);
-      if (segLen < 6.0) continue;
+      if (segLen < 4.5) continue;
       const ang = Math.atan2(dx, dz);
-      const px = (-dz / segLen) * (halfW + 0.13);
-      const pz = (dx / segLen) * (halfW + 0.13);
+      const px = (-dz / segLen) * (halfW + 0.14);
+      const pz = (dx / segLen) * (halfW + 0.14);
 
       // Subdivide into terrain-hugging <=5.5m curb stones that match exact slope with zero floating ends!
       const subs = Math.max(1, Math.ceil(segLen / 5.5));
@@ -174,7 +182,7 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
         const ax = x1 + dx * t0, az = z1 + dz * t0;
         const bx = x1 + dx * t1, bz = z1 + dz * t1;
         const mx = (ax + bx) * 0.5, mz = (az + bz) * 0.5;
-        if (Math.hypot(mx, mz) > 520) continue;
+        if (Math.hypot(mx, mz - 120) > maxRadius) continue;
         if (getRawWaterMask(mx, mz) && !isOnBridgeOrPier(mx, mz)) continue;
 
         for (const side of [-1, 1]) {
@@ -182,22 +190,21 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
           const sxB = bx + px * side, szB = bz + pz * side;
           const smx = (sxA + sxB) * 0.5, smz = (szA + szB) * 0.5;
           // Check BOTH ends + midpoint so curb bars NEVER cross in an 'X' at sharp intersection islands!
-          if (isInsideOtherRoad(smx, smz, ri, 0.55) || isInsideOtherRoad(sxA, szA, ri, 0.45) || isInsideOtherRoad(sxB, szB, ri, 0.45)) continue;
-          // Skip procedural curb bars inside Pont du Mont-Blanc deck & abutments (bridge has its own carved granite walkways!)
+          if (isInsideOtherRoad(smx, smz, ri, 0.65) || isInsideOtherRoad(sxA, szA, ri, 0.55) || isInsideOtherRoad(sxB, szB, ri, 0.55)) continue;
+          // Skip procedural curb bars inside Pont du Mont-Blanc deck & abutments
           const pmbCheck = projectPontMontBlanc(smx, smz);
           if (pmbCheck.t >= -0.05 && pmbCheck.t <= 1.05 && pmbCheck.lat < 16.0) continue;
-          const yA = getGroundHeight(sxA, szA) + 0.27;
-          const yB = getGroundHeight(sxB, szB) + 0.27;
-          if (Math.abs(yB - yA) > 0.55) continue; // skip abrupt bridge/shore ramp edges!
+          const yA = getGroundHeight(sxA, szA) + 0.23;
+          const yB = getGroundHeight(sxB, szB) + 0.23;
+          if (Math.abs(yB - yA) > 0.55) continue;
           const pitch = -Math.atan2(yB - yA, subLen);
-          // Store exact road-outward unit normal (outX, outZ) so bollards always go onto sidewalks & grates always sit in the road gutter!
           const outX = (-dz / segLen) * side;
           const outZ = (dx / segLen) * side;
-          curbPositions.push({ x: smx, y: (yA + yB) * 0.5 + 0.045, z: smz, len: subLen + 0.06, ang, pitch, outX, outZ });
+          curbPositions.push({ x: smx, y: (yA + yB) * 0.5 + 0.035, z: smz, len: subLen + 0.06, ang, pitch, outX, outZ, isPrimary });
         }
 
-        if (s % 2 === 0 && !isInsideOtherRoad(mx, mz, ri)) {
-          reflectorPositions.push([mx, getGroundHeight(mx, mz) + 0.30, mz]);
+        if (isPrimary && s % 2 === 0 && !isInsideOtherRoad(mx, mz, ri)) {
+          reflectorPositions.push([mx, getGroundHeight(mx, mz) + 0.225, mz]);
         }
       }
     }
@@ -234,23 +241,23 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
     const grateSpots = [];
     for (let idx = 0; idx < curbPositions.length; idx++) {
       const c = curbPositions[idx];
+      if (!c.isPrimary) continue;
       if (Math.hypot(c.x - 10, c.z - 165) > 290) continue;
       // Place cast-iron drainage grates strictly INWARD on the road asphalt gutter (-outX, -outZ)!
       if (idx % 4 === 1) {
         const gx = c.x - c.outX * 0.44;
         const gz = c.z - c.outZ * 0.44;
-        grateSpots.push({ x: gx, y: getGroundHeight(gx, gz) + 0.295, z: gz, ang: c.ang });
+        grateSpots.push({ x: gx, y: getGroundHeight(gx, gz) + 0.22, z: gz, ang: c.ang });
       }
       // Place dark Geneva green cast-iron bollards strictly OUTWARD onto BOTH left and right sidewalks (+outX, +outZ)!
       if (idx % 2 === 0 && Math.hypot(c.x - 15, c.z - 160) < 220) {
         const bx = c.x + c.outX * 0.58;
         const bz = c.z + c.outZ * 0.58;
-        // Keep spawn walk path, purple e-scooter & parked curb Vespa clear
         if (Math.hypot(bx - -10, bz - 148) < 4.5) continue;
         if (Math.hypot(bx - -4.9, bz - 151.9) < 2.2) continue;
         if (Math.hypot(bx - -2.4, bz - 159.4) < 2.2) continue;
-        if (!getRawWaterMask(bx, bz)) {
-          bollardSpots.push([bx, getGroundHeight(bx, bz) + 0.16, bz]);
+        if (!getRawWaterMask(bx, bz) && !isOnAnyRoad(bx, bz, 0.3)) {
+          bollardSpots.push([bx, getGroundHeight(bx, bz) + 0.25, bz]);
         }
       }
     }
@@ -647,94 +654,424 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
 
   // 3. ELECTRIC E-SCOOTERS ('Trottinettes') are now 100% ridable vehicles spawned in vehicles.js / cityData.js!
 
-  // 4. SWISS GLASS TPG BUS-STOP SHELTERS & TOTEMS + BLUE SWISS STREET TRASH BINS!
-  function createTpgSignTex(stopName) {
+  // 4. AUTHENTIC 1:1 GENEVA TPG BUS-STOP SHELTERS, LIVE LED TOTEMS, TICKET AUTOMATONS & YELLOW BUS-BAY MARKINGS!
+  function createTpgTotemTex(stopName, lines) {
     const c = document.createElement('canvas');
     c.width = 256;
-    c.height = 128;
+    c.height = 512;
     const ctx = c.getContext('2d');
+    // Signature Geneva TPG bright orange top crown
     ctx.fillStyle = '#f26522';
-    ctx.fillRect(0, 0, 256, 44);
+    ctx.fillRect(0, 0, 256, 86);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px "Helvetica Neue", sans-serif';
-    ctx.fillText('tpg  BUS', 16, 31);
-    ctx.fillStyle = '#141922';
-    ctx.fillRect(0, 44, 256, 84);
-    ctx.fillStyle = '#ffd27a';
-    ctx.font = 'bold 22px monospace';
-    ctx.fillText(stopName, 14, 84);
-    ctx.fillStyle = '#a8c2dc';
-    ctx.font = '15px sans-serif';
-    ctx.fillText('LIGNES  6 · 8 · 10 · 25', 14, 112);
+    ctx.font = '900 54px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('tpg', 18, 60);
+    ctx.font = 'bold 20px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('GENÈVE', 142, 56);
+
+    // Crisp black Geneva stop name header
+    ctx.fillStyle = '#12161d';
+    ctx.fillRect(0, 86, 256, 74);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = stopName.length > 14 ? 'bold 21px "Helvetica Neue", Arial, sans-serif' : 'bold 25px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(stopName, 14, 132);
+
+    // Authentic color-coded TPG line badges
+    ctx.fillStyle = '#f4f6f9';
+    ctx.fillRect(0, 160, 256, 94);
+    const badgePalette = {
+      '1': '#d9282f', '2': '#f59f00', '6': '#0077b6', '8': '#1f7a4c',
+      '9': '#7950f2', '10': '#0096c7', '12': '#e68a00', '14': '#6c3fb5',
+      '17': '#0095a8', '20': '#e07a5f', '25': '#d44292', 'E': '#2b8a3e',
+      'G': '#2b8a3e', '36': '#c92a2a',
+    };
+    const lineList = (lines || ['6', '8', '10', '25']).slice(0, 4);
+    lineList.forEach((ln, idx) => {
+      const bx = 14 + idx * 59;
+      ctx.fillStyle = badgePalette[ln] || '#3852a4';
+      ctx.beginPath();
+      ctx.roundRect(bx, 180, 50, 52, 8);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 28px "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(ln, bx + 25, 216);
+    });
+    ctx.textAlign = 'left';
+
+    // Glowing dark LED live departure matrix (authentic Geneva TPG amber/gold timetable!)
+    ctx.fillStyle = '#0c1016';
+    ctx.fillRect(10, 266, 236, 146);
+    ctx.strokeStyle = '#364152';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(10, 266, 236, 146);
+    const destMap = {
+      '1': 'PETIT-BEL-AIR', '2': 'BERNEX', '6': 'VERNIER', '8': 'VEYRIER',
+      '9': 'THÔNEX', '10': 'AÉROPORT', '12': 'PALETTES', '14': 'MEYRIN',
+      '17': 'PONT-ROUGE', '20': 'BELLEVUE', '25': 'JARDIN BOT.', 'E': 'HERMANCE',
+      'G': 'VEIGY', '36': 'VIEILLE-VILLE',
+    };
+    lineList.slice(0, 3).forEach((ln, idx) => {
+      const ry = 304 + idx * 42;
+      ctx.fillStyle = '#ffb732';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(ln.padEnd(3, ' '), 20, ry);
+      ctx.fillText((destMap[ln] || 'CENTRE').slice(0, 11), 62, ry);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = idx === 0 ? '#74f58a' : '#ffd27a';
+      ctx.fillText(`${2 + idx * 3}'`, 236, ry);
+      ctx.textAlign = 'left';
+    });
+
+    // Lower Swiss transit schedule & QR code info plate
+    ctx.fillStyle = '#e8ecf2';
+    ctx.fillRect(0, 424, 256, 88);
+    ctx.fillStyle = '#242b36';
+    ctx.font = 'bold 16px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('ZONE 10 · TOUT GENÈVE', 16, 456);
+    ctx.fillStyle = '#556070';
+    ctx.font = '14px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('tpg.ch  ·  00800 022 021 20', 16, 484);
+
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
     return tex;
   }
 
-  const busStops = [
-    { x: 56, z: 190, yaw: -0.45, name: 'JARDIN ANGLAIS' },
-    { x: -134, z: -156, yaw: 2.35, name: 'QUAI MONT-BLANC' },
-    { x: -72, z: 162, yaw: -0.22, name: 'MOLARD' },
-  ].filter((bs) => !isOnAnyRoad(bs.x, bs.z, 1.4));
-  for (const bs of busStops) {
-    const by = getGroundHeight(bs.x, bs.z) + 0.16;
+  function createTpgVitrineTex(stopName, lines) {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 384;
+    const ctx = c.getContext('2d');
+    // Illuminated Geneva TPG Network Map + Swiss Watch / Cultural Poster inside JCDecaux glass vitrine
+    ctx.fillStyle = '#f6f7f9';
+    ctx.fillRect(0, 0, 256, 384);
+    ctx.fillStyle = '#f26522';
+    ctx.fillRect(0, 0, 256, 56);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 32px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('tpg', 16, 39);
+    ctx.font = 'bold 16px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('PLAN DU RÉSEAU', 92, 36);
+
+    // Stylized Lac Léman + Rade de Genève transit map graphic
+    ctx.fillStyle = '#cde6f7';
+    ctx.beginPath();
+    ctx.moveTo(14, 72);
+    ctx.lineTo(242, 72);
+    ctx.lineTo(242, 162);
+    ctx.quadraticCurveTo(138, 178, 14, 142);
+    ctx.closePath();
+    ctx.fill();
+
+    // Colored TPG bus & tram route schematic lines
+    const routeCols = ['#f26522', '#0077b6', '#1f7a4c', '#d44292', '#6c3fb5'];
+    routeCols.forEach((col, i) => {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(18, 175 + i * 24);
+      ctx.bezierCurveTo(85, 165 + i * 18, 150, 215 - i * 10, 238, 180 + i * 22);
+      ctx.stroke();
+    });
+    // Red 'VOUS ÊTES ICI' location dot
+    ctx.fillStyle = '#d91822';
+    ctx.beginPath();
+    ctx.arc(128, 198, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Bottom stop name & connecting lines footer
+    ctx.fillStyle = '#141922';
+    ctx.fillRect(12, 298, 232, 74);
+    ctx.fillStyle = '#ffd27a';
+    ctx.font = stopName.length > 14 ? 'bold 18px "Helvetica Neue", Arial, sans-serif' : 'bold 21px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(stopName, 22, 330);
+    ctx.fillStyle = '#c4d4e4';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`BUS ${(lines || ['6', '8', '25']).join(' · ')}`, 22, 356);
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    return tex;
+  }
+
+  // Shared yellow Swiss 'BUS' zigzag road bay marking texture (painted flush on asphalt next to every TPG shelter!)
+  const busBayCan = document.createElement('canvas');
+  busBayCan.width = 512;
+  busBayCan.height = 128;
+  const bbCtx = busBayCan.getContext('2d');
+  bbCtx.clearRect(0, 0, 512, 128);
+  bbCtx.strokeStyle = '#f5c418';
+  bbCtx.lineWidth = 10;
+  bbCtx.strokeRect(8, 10, 496, 108);
+  // Swiss zigzag lines at both ends of bus bay
+  bbCtx.beginPath();
+  for (let x = 16; x < 164; x += 28) {
+    bbCtx.moveTo(x, 14);
+    bbCtx.lineTo(x + 24, 114);
+  }
+  for (let x = 348; x < 496; x += 28) {
+    bbCtx.moveTo(x, 14);
+    bbCtx.lineTo(x + 24, 114);
+  }
+  bbCtx.stroke();
+  bbCtx.fillStyle = '#f5c418';
+  bbCtx.font = '900 72px "Helvetica Neue", Arial, sans-serif';
+  bbCtx.textAlign = 'center';
+  bbCtx.textBaseline = 'middle';
+  bbCtx.fillText('BUS', 256, 66);
+  const busBayTex = new THREE.CanvasTexture(busBayCan);
+  busBayTex.colorSpace = THREE.SRGBColorSpace;
+  busBayTex.anisotropy = 8;
+  const busBayMat = new THREE.MeshStandardMaterial({
+    map: busBayTex,
+    transparent: true,
+    roughness: 0.78,
+    polygonOffset: true,
+    polygonOffsetFactor: -5,
+    polygonOffsetUnits: -5,
+  });
+
+  // Shared TPG orange fascia, illuminated canopy bar, and Swiss TPG Ticket Automaton materials
+  const tpgOrangeMat = new THREE.MeshStandardMaterial({ color: 0xf26522, roughness: 0.34, metalness: 0.12 });
+  const tpgLedBarMat = new THREE.MeshBasicMaterial({ color: 0xfff5e4 });
+  const ticketScreenCan = document.createElement('canvas');
+  ticketScreenCan.width = 128;
+  ticketScreenCan.height = 192;
+  const tsCtx = ticketScreenCan.getContext('2d');
+  tsCtx.fillStyle = '#f26522';
+  tsCtx.fillRect(0, 0, 128, 38);
+  tsCtx.fillStyle = '#ffffff';
+  tsCtx.font = '900 24px "Helvetica Neue", Arial, sans-serif';
+  tsCtx.fillText('tpg', 14, 28);
+  tsCtx.fillStyle = '#101826';
+  tsCtx.fillRect(10, 48, 108, 76);
+  tsCtx.fillStyle = '#68d5ff';
+  tsCtx.font = 'bold 13px sans-serif';
+  tsCtx.fillText('TOUT GENÈVE', 16, 72);
+  tsCtx.fillStyle = '#ffd27a';
+  tsCtx.font = 'bold 18px monospace';
+  tsCtx.fillText('CHF 3.00', 18, 104);
+  tsCtx.fillStyle = '#2a323e';
+  tsCtx.fillRect(10, 136, 108, 44);
+  tsCtx.fillStyle = '#d4dbe4';
+  tsCtx.font = 'bold 12px sans-serif';
+  tsCtx.fillText('BILLETS · CARTES', 14, 162);
+  const ticketScreenTex = new THREE.CanvasTexture(ticketScreenCan);
+  ticketScreenTex.colorSpace = THREE.SRGBColorSpace;
+  const ticketFrontMat = new THREE.MeshBasicMaterial({ map: ticketScreenTex });
+
+  // Helper: snap a real OSM bus stop cleanly onto dry sidewalk facing the nearest vehicular road (zero road blocking!)
+  function alignBusStopToSidewalk(rawX, rawZ) {
+    let bestSeg = null;
+    let bestD = Infinity;
+    let bestPx = rawX;
+    let bestPz = rawZ;
+    for (let k = 0; k < allVehicleRoadSegs.length; k++) {
+      const [x1, z1, x2, z2, hw] = allVehicleRoadSegs[k];
+      const vx = x2 - x1;
+      const vz = z2 - z1;
+      const l2 = vx * vx + vz * vz;
+      if (l2 < 0.5) continue;
+      const t = Math.max(0, Math.min(1, ((rawX - x1) * vx + (rawZ - z1) * vz) / l2));
+      const px = x1 + t * vx;
+      const pz = z1 + t * vz;
+      const d = Math.hypot(rawX - px, rawZ - pz);
+      if (d < bestD) {
+        bestD = d;
+        bestSeg = allVehicleRoadSegs[k];
+        bestPx = px;
+        bestPz = pz;
+      }
+    }
+    if (!bestSeg || bestD > 24) return null;
+    const [x1, z1, x2, z2, hw] = bestSeg;
+    const len = Math.hypot(x2 - x1, z2 - z1) || 1;
+    const tx = (x2 - x1) / len;
+    const tz = (z2 - z1) / len;
+    let nx = -tz;
+    let nz = tx;
+    // Choose the sidewalk side closest to the real OSM bus stop pin (or dry side if one side is water)
+    const dot = (rawX - bestPx) * nx + (rawZ - bestPz) * nz;
+    if (dot < 0) { nx = -nx; nz = -nz; }
+    const distFromCenter = hw + 2.35;
+    let sx = bestPx + nx * distFromCenter;
+    let sz = bestPz + nz * distFromCenter;
+    if (getRawWaterMask(sx, sz) || isOnAnyRoad(sx, sz, 0.9)) {
+      // Try opposite side of road
+      nx = -nx; nz = -nz;
+      sx = bestPx + nx * distFromCenter;
+      sz = bestPz + nz * distFromCenter;
+      if (getRawWaterMask(sx, sz) || isOnAnyRoad(sx, sz, 0.9)) return null;
+    }
+    // Shelter local +Z faces OUTWARD toward the road (-nx, -nz)!
+    const yaw = Math.atan2(-nx, -nz);
+    // Adjacent asphalt bus bay sits right inside the curb lane
+    const bayX = bestPx + nx * Math.max(1.2, hw - 1.45);
+    const bayZ = bestPz + nz * Math.max(1.2, hw - 1.45);
+    const roadAng = Math.atan2(tx, tz);
+    return { x: sx, z: sz, yaw, bayX, bayZ, roadAng };
+  }
+
+  // Real 1:1 Geneva TPG Bus Stops (curated signature stops + real OSM GPS stops from geneva-street-features.json!)
+  const candidateBusStops = [
+    { x: 4.17,    z: 154.99,  name: 'HORLOGE FLEURIE',    lines: ['2', '6', '10', '25'] },
+    { x: 56.0,    z: 190.0,   name: 'JARDIN ANGLAIS',     lines: ['2', '6', '25', 'E'] },
+    { x: -101.8,  z: 231.15,  name: 'MOLARD',             lines: ['2', '6', '10', '25'] },
+    { x: 117.75,  z: 302.31,  name: 'MÉTROPOLE',          lines: ['6', '8', '9', '25'] },
+    { x: 197.37,  z: 463.96,  name: 'RIVE',               lines: ['6', '8', '9', 'E'] },
+    { x: 440.01,  z: 404.76,  name: 'EAUX-VIVES',         lines: ['2', '6', 'E', 'G'] },
+    { x: -200.78, z: -128.31, name: 'MONT-BLANC',         lines: ['1', '6', '8', '25'] },
+    { x: -134.0,  z: -156.0,  name: 'QUAI MONT-BLANC',    lines: ['1', '20', '25'] },
+    { x: 215.0,   z: -486.0,  name: 'BAINS DES PÂQUIS',   lines: ['1', '20', '25'] },
+    { x: -471.9,  z: 498.05,  name: 'PLACE DE NEUVE',     lines: ['3', '5', '12', '20'] },
+    { x: -173.51, z: 499.67,  name: 'CATHÉDRALE',         lines: ['36'] },
+    { x: 265.0,   z: 208.0,   name: 'QUAI GUSTAVE-ADOR',  lines: ['2', '6', 'E', 'G'] },
+  ];
+  const placedBusStops = [];
+  for (const cand of candidateBusStops) {
+    if (placedBusStops.some((p) => Math.hypot(p.x - cand.x, p.z - cand.z) < 38)) continue;
+    const aligned = alignBusStopToSidewalk(cand.x, cand.z);
+    if (!aligned) continue;
+    if (Math.hypot(aligned.x - -10, aligned.z - 148) < 9.5) continue; // keep player spawn clear
+    placedBusStops.push({ ...cand, ...aligned });
+  }
+
+  for (const bs of placedBusStops) {
+    const by = getGroundHeight(bs.x, bs.z) + 0.252;
     const sh = new THREE.Group();
     sh.position.set(bs.x, by, bs.z);
     sh.rotation.y = bs.yaw;
 
-    // Modern Swiss dark-steel & panoramic glass shelter
-    for (const px of [-2.1, 0, 2.1]) {
-      const col = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.65, 0.12), darkMetal);
-      col.position.set(px, 1.32, -0.7);
+    // 0. Authentic Swiss Ticino Granite Boarding Platform Apron ('Quai de bus') flush beneath & in front of every shelter!
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.14, 3.2), graniteMat);
+    apron.position.set(0.1, -0.068, 0.35);
+    apron.receiveShadow = true;
+    sh.add(apron);
+
+    // 1. Sleek Geneva JCDecaux / TPG Anthracite Steel & Panoramic Glass Shelter
+    for (const px of [-2.2, 0, 2.2]) {
+      const col = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2.68, 0.11), darkMetal);
+      col.position.set(px, 1.34, -0.78);
       col.castShadow = true;
       sh.add(col);
     }
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.12, 1.95), darkMetal);
-    roof.position.set(0, 2.68, 0.05);
+    // Cantilevered steel roof + signature TPG orange front fascia strip + glowing underside LED bar
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(4.9, 0.11, 2.05), darkMetal);
+    roof.position.set(0, 2.72, 0.05);
     roof.castShadow = true;
-    const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.35, 0.06), glassMat);
-    backGlass.position.set(0, 1.3, -0.7);
-    const adPanel = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 2.15, 1.45),
-      new THREE.MeshBasicMaterial({ map: createTpgSignTex(bs.name) })
-    );
-    adPanel.position.set(2.15, 1.32, 0.0);
-    const bench = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 0.45), woodMat);
-    bench.position.set(-0.4, 0.5, -0.38);
-    // Tall TPG transit totem pole beside shelter (like Reference 1's blue bus stop sign!)
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.3, 8), steelMat);
-    pole.position.set(-2.65, 1.65, 0.4);
-    const signBox = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.42, 0.1), new THREE.MeshBasicMaterial({ map: createTpgSignTex(bs.name) }));
-    signBox.position.set(-2.65, 3.05, 0.4);
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(4.92, 0.14, 0.06), tpgOrangeMat);
+    fascia.position.set(0, 2.72, 1.07);
+    const ledBar = new THREE.Mesh(new THREE.BoxGeometry(4.1, 0.03, 0.12), tpgLedBarMat);
+    ledBar.position.set(0, 2.65, 0.22);
 
-    sh.add(roof, backGlass, adPanel, bench, pole, signBox);
+    // Panoramic glass back wall + left side windscreen with safety stripe
+    const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.38, 0.05), glassMat);
+    backGlass.position.set(0, 1.34, -0.78);
+    const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.38, 1.48), glassMat);
+    sideGlass.position.set(-2.2, 1.34, -0.02);
+
+    // Illuminated Geneva TPG Network Map & Route Vitrine Box on right end
+    const vitrineTex = createTpgVitrineTex(bs.name, bs.lines);
+    const vitrineFrame = new THREE.Mesh(new THREE.BoxGeometry(0.20, 2.48, 1.56), darkMetal);
+    vitrineFrame.position.set(2.26, 1.34, 0.0);
+    vitrineFrame.castShadow = true;
+    const vitrineFace = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 2.24, 1.36),
+      new THREE.MeshBasicMaterial({ map: vitrineTex })
+    );
+    vitrineFace.position.set(2.26, 1.34, 0.0);
+
+    // Curved wooden Geneva waiting bench with anthracite steel armrests
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(2.85, 0.075, 0.44), woodMat);
+    bench.position.set(-0.35, 0.48, -0.40);
+    bench.castShadow = true;
+    for (const bx of [-1.45, 0.75]) {
+      const bLeg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.46, 0.36), darkMetal);
+      bLeg.position.set(bx, 0.23, -0.40);
+      sh.add(bLeg);
+    }
+
+    // 2. Authentic Geneva TPG Transit Totem Pillar (orange cap + stop name + color line badges + live amber LED departures!)
+    const totemTex = createTpgTotemTex(bs.name, bs.lines);
+    const totemBase = new THREE.Mesh(new THREE.BoxGeometry(0.56, 3.25, 0.16), darkMetal);
+    totemBase.position.set(-2.85, 1.625, 0.45);
+    totemBase.castShadow = true;
+    const totemFace = new THREE.Mesh(
+      new THREE.BoxGeometry(0.50, 2.86, 0.18),
+      new THREE.MeshBasicMaterial({ map: totemTex })
+    );
+    totemFace.position.set(-2.85, 1.72, 0.45);
+    const totemCap = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.14, 0.18), tpgOrangeMat);
+    totemCap.position.set(-2.85, 3.30, 0.45);
+
+    // 3. Authentic Geneva TPG Ticket Automaton ('Distributeur tpg') standing beside right end of shelter!
+    const kBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.82, 0.46), darkMetal);
+    kBody.position.set(3.05, 0.91, -0.25);
+    kBody.castShadow = true;
+    const kHood = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.18, 0.54), tpgOrangeMat);
+    kHood.position.set(3.05, 1.88, -0.22);
+    const kFace = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 0.88), ticketFrontMat);
+    kFace.position.set(3.05, 1.16, -0.015);
+
+    sh.add(roof, fascia, ledBar, backGlass, sideGlass, vitrineFrame, vitrineFace, bench, totemBase, totemFace, totemCap, kBody, kHood, kFace);
     propsGroup.add(sh);
-    insertCollider({ kind: 'obb', x: bs.x, z: bs.z, yaw: bs.yaw, halfW: 2.4, halfL: 0.95, maxY: by + 2.8, walkableTop: true });
+
+    // 4. Flush Yellow Swiss Painted 'BUS' Zigzag Bay Marking on the adjacent road asphalt!
+    const bayMesh = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 2.55).rotateX(-Math.PI / 2), busBayMat);
+    bayMesh.position.set(bs.bayX, getGroundHeight(bs.bayX, bs.bayZ) + 0.23, bs.bayZ);
+    bayMesh.rotation.y = bs.roadAng + Math.PI * 0.5;
+    propsGroup.add(bayMesh);
+
+    insertCollider({ kind: 'obb', x: bs.x, z: bs.z, yaw: bs.yaw, halfW: 2.8, halfL: 1.0, maxY: by + 2.85, walkableTop: true });
     if (registerInteractable) {
       const cosY = Math.cos(bs.yaw), sinY = Math.sin(bs.yaw);
-      const bLx = -0.4, bLz = -0.34;
+      const bLx = -0.35, bLz = -0.36;
       const bx = bs.x + cosY * bLx + sinY * bLz;
       const bz = bs.z - sinY * bLx + cosY * bLz;
-      const ex = bs.x + cosY * bLx + sinY * 1.48;
-      const ez = bs.z - sinY * bLx + cosY * 1.48;
+      const ex = bs.x + cosY * bLx + sinY * 1.52;
+      const ez = bs.z - sinY * bLx + cosY * 1.52;
       registerInteractable({
         id: `shelter_bench_${bs.name}`,
         type: 'shelter_bench',
         label: `WAIT AT TPG · ${bs.name}`,
         activeLabel: 'STAND UP',
-        subtitle: `Waiting at TPG ${bs.name} · Next bus in 2 min… (E or WASD to stand)`,
+        subtitle: `Waiting at TPG ${bs.name} (Lignes ${bs.lines.join(', ')}) · Next bus in 2 min… (E or WASD to stand)`,
         toast: `TPG STOP · ${bs.name}`,
         x: bx,
         y: by,
         z: bz,
         yaw: bs.yaw,
-        benchWidth: 1.5,
+        benchWidth: 1.6,
         seatLocalZ: 0.06,
         exitX: ex,
         exitZ: ez,
         persistent: true,
         radius: 3.1,
         priority: 1.1,
+      });
+      // Interactive TPG Ticket Automaton
+      const kx = bs.x + cosY * 3.05 + sinY * 0.15;
+      const kz = bs.z - sinY * 3.05 + cosY * 0.15;
+      registerInteractable({
+        id: `tpg_ticket_${bs.name}`,
+        type: 'tpg_ticket',
+        label: `BUY TPG TICKET · ${bs.name}`,
+        subtitle: `Unireso Zone 10 Tout Genève ticket printed (60 min) at ${bs.name}!`,
+        toast: `TPG BILLET ZONE 10 · ${bs.name}`,
+        x: kx,
+        y: by,
+        z: kz,
+        rimRadius: 0.9,
+        persistent: false,
+        duration: 1.8,
+        radius: 2.3,
+        priority: 0.9,
       });
     }
   }
@@ -1093,10 +1430,10 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
         const my = getGroundHeight(mx, mz);
 
         // Dark basalt cobblestone track-bed strip embedded flush in asphalt (1.55m wide, just like ref_05!)
-        cobInfill.push({ x: mx, y: my + 0.295, z: mz, len: len + 0.12, ang });
+        cobInfill.push({ x: mx, y: my + 0.215, z: mz, len: len + 0.12, ang });
         // Geneva meter-gauge twin steel rails (+-0.50m)
         for (const rOff of [-0.50, 0.50]) {
-          steelRails.push({ x: mx + rx * rOff, y: my + 0.305, z: mz + rz * rOff, len: len + 0.12, ang });
+          steelRails.push({ x: mx + rx * rOff, y: my + 0.228, z: mz + rz * rOff, len: len + 0.12, ang });
         }
         // Overhead TPG tram contact wire (5.65m height)
         catWires.push({ x: mx, y: my + 5.65, z: mz, len: len + 0.14, ang });
@@ -1164,12 +1501,12 @@ export function buildGenevaStreetProps(worldGroup, realData, insertCollider, pho
     ];
     if (streetFeatures?.bikeParking?.length) {
       for (const [bx, bz] of streetFeatures.bikeParking) {
-        if (getRawWaterMask(bx, bz) || isOnAnyRoad(bx, bz, 1.4)) continue;
+        if (getRawWaterMask(bx, bz) || isOnAnyRoad(bx, bz, 2.0)) continue;
         if (rackClusters.some(([ox, oz]) => Math.hypot(ox - bx, oz - bz) < 14)) continue;
         rackClusters.push([bx, bz, 0.52]);
       }
     }
-    const validRacks = rackClusters.filter(([cx, cz]) => !isOnAnyRoad(cx, cz, 0.8) && !getRawWaterMask(cx, cz));
+    const validRacks = rackClusters.filter(([cx, cz]) => !isOnAnyRoad(cx, cz, 1.85) && !getRawWaterMask(cx, cz));
     const hoopParts = [];
     const hL = new THREE.CylinderGeometry(0.025, 0.025, 0.78, 6); hL.translate(-0.34, 0.39, 0);
     const hR = new THREE.CylinderGeometry(0.025, 0.025, 0.78, 6); hR.translate(0.34, 0.39, 0);

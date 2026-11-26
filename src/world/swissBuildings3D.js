@@ -312,10 +312,20 @@ function classifyBuildingProfile(cx, cz, name = '', kind = '', idx = 0) {
   };
 }
 
-function buildOsmStyleLookup(realData) {
+function buildOsmStyleLookup(realData, buildingsMeta = null, realPlaces = null) {
   const CELL = 32;
   const grid = new Map();
   const buildings = realData?.buildings || [];
+
+  // Index real OSM building metadata (street address, heritage, shop/amenity/tourism) & realPlaces by 28m cell!
+  const metaList = buildingsMeta?.buildings || [];
+  const placeList = realPlaces?.places || [];
+  const brandFronts = [];
+  for (const p of placeList) {
+    if (p.category === 'watch' || p.category === 'dept' || p.category === 'shop' || p.category === 'hotel' || p.category === 'bank') {
+      brandFronts.push([p.x, p.z, p.category, p.name || '']);
+    }
+  }
 
   for (let i = 0; i < buildings.length; i++) {
     const b = buildings[i];
@@ -339,7 +349,30 @@ function buildOsmStyleLookup(realData) {
     }
     const cx = sx / pts.length;
     const cz = sz / pts.length;
-    const profile = classifyBuildingProfile(cx, cz, b.n, b.k, i);
+
+    // Enrich name & kind from real OSM building metadata & realPlaces inside this footprint!
+    let bName = b.n || '';
+    let bKind = b.k || '';
+    for (let m = 0; m < metaList.length; m++) {
+      const bm = metaList[m];
+      if (Math.abs(bm.x - cx) < 12 && Math.abs(bm.z - cz) < 12) {
+        if (!bName && bm.n) bName = bm.n;
+        if ((!bKind || bKind === 'yes') && (bm.k || bm.to || bm.am)) bKind = bm.k || bm.to || bm.am;
+        break;
+      }
+    }
+    if (!bName) {
+      for (let p = 0; p < brandFronts.length; p++) {
+        const [px, pz, cat, pname] = brandFronts[p];
+        if (px >= minX - 2 && px <= maxX + 2 && pz >= minZ - 2 && pz <= maxZ + 2 && pointInPolygon(px, pz, pts)) {
+          bName = pname;
+          if (!bKind || bKind === 'yes') bKind = cat;
+          break;
+        }
+      }
+    }
+
+    const profile = classifyBuildingProfile(cx, cz, bName, bKind, i);
     const rec = { pts, minX, maxX, minZ, maxZ, cx, cz, profile };
 
     const gx0 = Math.floor((minX - 5) / CELL);
@@ -357,6 +390,16 @@ function buildOsmStyleLookup(realData) {
         arr.push(rec);
       }
     }
+  }
+
+  function isNearBrandSign(px, pz, rad = 8.0) {
+    const r2 = rad * rad;
+    for (let i = 0; i < brandFronts.length; i++) {
+      const dx = brandFronts[i][0] - px;
+      const dz = brandFronts[i][1] - pz;
+      if (dx * dx + dz * dz < r2) return true;
+    }
+    return false;
   }
 
   function isPointInsideAnyBuilding(px, pz) {
@@ -402,7 +445,7 @@ function buildOsmStyleLookup(realData) {
     return classifyBuildingProfile(cellX, cellZ, '', '', Math.abs(Math.floor(cellX) * 7 + Math.floor(cellZ) * 13));
   }
 
-  return { lookupProfile, isPointInsideAnyBuilding };
+  return { lookupProfile, isPointInsideAnyBuilding, isNearBrandSign };
 }
 
 // =================================================================================================
@@ -657,86 +700,52 @@ float swHash21(vec2 p) {
           swEmisSample *= (1.0 - isHoriz);
 
           // =====================================================================================
-          // TRUE 3D WINDOW INTERIOR PARALLAX + SCHLICK FRESNEL ALPINE SKY REFLECTIONS!
-          // Strictly masked to real architectural glass panes via per-layer PBR roughness channel!
+          // PHOTO-PRESERVING SCHLICK FRESNEL ALPINE SKY & LAKE REFLECTIONS ON ARCHITECTURAL GLASS!
+          // Preserves 100% of real photographed Geneva boutique vitrines, curtains & Venetian blinds
+          // (NO hollow empty box override, NO flat glowing neon-yellow shop rectangles!)
           // =====================================================================================
-          float glassMask = (1.0 - smoothstep(0.11, 0.24, swRoughSample)) * (1.0 - isHoriz);
-          vec3 swParallaxEmis = vec3(0.0);
+          float glassMask = (1.0 - smoothstep(0.10, 0.24, swRoughSample)) * (1.0 - isHoriz);
+          vec3 swParallaxEmis = swEmisSample;
           if (glassMask > 0.01) {
             vec3 viewDirW = normalize(cameraPosition - vSwPos);
-            vec3 swT = vec3(facTang.x, 0.0, facTang.y);
-            vec3 swB = vec3(0.0, 1.0, 0.0);
             float vDotN = max(0.06, abs(dot(viewDirW, swFaceN)));
-            vec2 viewTan = vec2(dot(viewDirW, swT), dot(viewDirW, swB));
-
-            // Room cell coordinates aligned to Geneva window bays
-            vec2 roomScale = mix(vec2(3.53, 4.68), mix(vec2(3.0, 3.2), vec2(3.45, 3.35), isModLayer), isUpper);
-            vec2 roomCoord = vec2(uMeters, max(0.0, hRel - isUpper * 4.65)) / roomScale;
-            vec2 roomId = floor(roomCoord);
-            vec2 roomUv = fract(roomCoord); // [0..1] across one room bay
-            float rSeed = swHash21(roomId + vec2(upperLayer * 13.7, warmth * 29.1));
-
-            // Ray-box intersection into recessed 3D room (depth = 0.62 behind glass plane)
-            vec3 rd = normalize(vec3(-viewTan.x, -viewTan.y, -vDotN));
-            vec3 ro = vec3(roomUv.x, roomUv.y, 0.0);
-            float tX = rd.x > 0.001 ? (1.0 - ro.x) / rd.x : (rd.x < -0.001 ? -ro.x / rd.x : 99.0);
-            float tY = rd.y > 0.001 ? (1.0 - ro.y) / rd.y : (rd.y < -0.001 ? -ro.y / rd.y : 99.0);
-            float tZ = abs(rd.z) > 0.001 ? 0.62 / abs(rd.z) : 99.0;
-            float tHit = min(min(tX, tY), tZ);
-            vec3 hitP = ro + rd * tHit;
-
-            // 3D room shading: ceiling slab, warm plaster walls, dark oak floor, recessed boutique/office lighting!
-            float hitCeil = step(tY, min(tX, tZ)) * step(0.0, rd.y);
-            float hitFloor = step(tY, min(tX, tZ)) * step(rd.y, 0.0);
-            float hitBack = step(tZ, min(tX, tY));
             float isShopGlass = 1.0 - isUpper;
-            vec3 wallTint = mix(
-              mix(vec3(0.46, 0.41, 0.34), vec3(0.36, 0.40, 0.44), step(0.62, rSeed) * isModLayer),
-              vec3(0.62, 0.53, 0.40),
-              isShopGlass
-            );
-            vec3 roomCol = wallTint;
-            roomCol = mix(roomCol, vec3(0.68, 0.62, 0.54), hitCeil);
-            roomCol = mix(roomCol, vec3(0.16, 0.12, 0.09), hitFloor);
-            // Warm interior ceiling lamps & luxury boutique display vitrines shifting in true 3D parallax!
-            float lampSpot = hitCeil * smoothstep(0.28, 0.05, length(hitP.xz - vec2(0.5, -0.32)));
-            float backFixture = hitBack * smoothstep(0.42, 0.12, abs(hitP.x - 0.5)) * smoothstep(0.78, 0.32, hitP.y);
-            float depthFade = exp(-tHit * 1.05);
-            vec3 dayRoomUpper = roomCol * (0.24 + 0.18 * depthFade) + vec3(0.24, 0.20, 0.14) * lampSpot * 0.42;
-            vec3 dayRoomShop  = roomCol * (0.44 + 0.34 * depthFade) + vec3(0.75, 0.58, 0.34) * (lampSpot * 0.85 + backFixture * 0.48);
-            vec3 dayRoom = mix(dayRoomUpper, dayRoomShop, isShopGlass);
 
-            // Physically crisp Schlick Fresnel reflection of Lac Léman & Alpine Geneva sky (matches ref_01 & ref_03!)
-            float fres = 0.20 + 0.72 * pow(1.0 - vDotN, 2.8);
+            // Physically plausible architectural glazing Fresnel (subtle on eye-level shopfronts so interiors read clearly!)
+            float fres = pow(1.0 - vDotN, 3.0);
             vec3 reflDir = reflect(-viewDirW, swFaceN);
             float skyElev = clamp(reflDir.y * 0.5 + 0.5, 0.0, 1.0);
             float nightAmt = clamp(uNightGlow * 0.72, 0.0, 1.0);
 
-            // Day Alpine sky reflection (bright cerulean sky, sunlit cloud wisps + opposite sandstone facade reflection)
+            // Day Alpine sky reflection (deep Geneva cerulean + sunlit cloud wisps + warm opposite sandstone reflection)
             float cloudWave = smoothstep(0.44, 0.82, sin(reflDir.x * 5.2 + reflDir.z * 3.8 + vSwPos.y * 0.05) * 0.5 + 0.5);
-            vec3 skyDay = mix(vec3(0.52, 0.68, 0.86), vec3(0.20, 0.42, 0.76), smoothstep(0.48, 0.92, skyElev));
-            skyDay = mix(skyDay, vec3(0.88, 0.92, 0.96), cloudWave * 0.38 * smoothstep(0.44, 0.76, skyElev));
-            vec3 oppBldDay = vec3(0.20, 0.19, 0.17) * (0.72 + 0.38 * smoothstep(0.18, 0.50, skyElev));
-            vec3 reflDay = mix(oppBldDay, skyDay, smoothstep(0.42, 0.55, skyElev));
+            vec3 skyDay = mix(vec3(0.48, 0.66, 0.86), vec3(0.18, 0.40, 0.74), smoothstep(0.48, 0.92, skyElev));
+            skyDay = mix(skyDay, vec3(0.86, 0.91, 0.96), cloudWave * 0.34 * smoothstep(0.44, 0.76, skyElev));
+            vec3 oppBldDay = vec3(0.24, 0.22, 0.19) * (0.72 + 0.34 * smoothstep(0.18, 0.50, skyElev));
+            vec3 reflDay = mix(oppBldDay, skyDay, smoothstep(0.42, 0.56, skyElev));
 
-            // Night Alpine sky + warm Rue du Rhône streetlamp horizon shimmer
-            vec3 skyNight = mix(vec3(0.032, 0.052, 0.095), vec3(0.012, 0.024, 0.052), smoothstep(0.50, 0.92, skyElev));
+            // Night Alpine sky + warm Rue du Rhône streetlamp shimmer
+            vec3 skyNight = mix(vec3(0.028, 0.046, 0.084), vec3(0.012, 0.022, 0.048), smoothstep(0.50, 0.92, skyElev));
             float cityGlowBand = exp(-abs(reflDir.y) * 9.0);
-            vec3 reflNight = skyNight + vec3(0.16, 0.10, 0.045) * cityGlowBand * 0.65;
+            vec3 reflNight = skyNight + vec3(0.15, 0.10, 0.045) * cityGlowBand * 0.55;
 
             vec3 skyRefl = mix(reflDay, reflNight, nightAmt);
 
-            // Blend authentic texture glass/curtain detail + 3D room depth + Fresnel sky mirror reflection
-            float reflWeight = fres * mix(mix(0.88, 0.62, isShopGlass), 0.56, nightAmt);
-            vec3 glassBase = mix(facadeCol * 0.62 + dayRoom * 0.75, skyRefl, reflWeight);
+            // Shopfront glass: gentle 8%..34% Fresnel glaze so watch/fashion vitrines shine through crisply!
+            // Upper-story windows: 14%..48% Fresnel glaze blending curtains/blinds naturally with Alpine sky!
+            float reflWeight = mix(
+              0.12 + 0.38 * fres,
+              0.06 + 0.28 * fres,
+              isShopGlass
+            ) * mix(1.0, 0.45, nightAmt);
+
+            vec3 glassBase = mix(facadeCol, skyRefl, reflWeight);
+            // Warm subtle interior lift for daytime luxury display vitrines so they never look pitch-black in shade
+            glassBase += facadeCol * (0.28 * isShopGlass * (1.0 - nightAmt));
             facadeCol = mix(facadeCol, glassBase, glassMask);
 
-            // At night, lit 3D room interiors glow with parallax ceiling fixtures & warm walls!
-            float emisLum = dot(swEmisSample, vec3(0.299, 0.587, 0.114));
-            if (emisLum > 0.015) {
-              vec3 lit3DRoom = swEmisSample * (0.55 + 0.68 * depthFade) + vec3(1.15, 0.88, 0.54) * (lampSpot * 1.15 + backFixture * 0.32) * emisLum;
-              swParallaxEmis = lit3DRoom * glassMask;
-            }
+            // At night, let the real photographic vitrine / curtain emissive map glow warmly without washing out detail!
+            swParallaxEmis = swEmisSample * mix(1.02, 1.18, isShopGlass);
           }
 
           // Grounded street-level ambient occlusion
@@ -942,7 +951,9 @@ export async function loadSwissBuildings3D(
   photoBundle,
   orthoTex,
   onProgress = () => {},
-  insertCollider = null
+  insertCollider = null,
+  buildingsMeta = null,
+  realPlaces = null
 ) {
   const res = await fetch('/data/swissbuildings3d/manifest.json');
   if (!res.ok) throw new Error('swissBUILDINGS3D manifest missing');
@@ -955,7 +966,7 @@ export async function loadSwissBuildings3D(
     orthoTex
   );
 
-  const osmLookup = buildOsmStyleLookup(realData);
+  const osmLookup = buildOsmStyleLookup(realData, buildingsMeta, realPlaces);
 
   const swissGroup = new THREE.Group();
   swissGroup.name = 'swisstopo_swissBUILDINGS3D_Geneva';
@@ -968,6 +979,82 @@ export async function loadSwissBuildings3D(
 
   // Fast 4m spatial rooftop-height grid recorded from REAL swissBUILDINGS3D vertices
   const roofMaxY = new Map();
+  // Exact 8m spatial 3D rooftop triangle grid for millimeter-accurate player & helicopter rooftop landing!
+  const ROOF_CELL = 8;
+  const roofTriGrid = new Map();
+  function insertRoofTriangle(ax, ay, az, bx, by, bz, cx, cy, cz) {
+    // Reject tiny degenerate horizontal projections
+    const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    if (Math.abs(det) < 0.02) return;
+    const minX = Math.min(ax, bx, cx);
+    const maxX = Math.max(ax, bx, cx);
+    const minZ = Math.min(az, bz, cz);
+    const maxZ = Math.max(az, bz, cz);
+    const tri = [ax, ay, az, bx, by, bz, cx, cy, cz, minX, maxX, minZ, maxZ, 1.0 / det];
+    const gx0 = Math.floor(minX / ROOF_CELL);
+    const gx1 = Math.floor(maxX / ROOF_CELL);
+    const gz0 = Math.floor(minZ / ROOF_CELL);
+    const gz1 = Math.floor(maxZ / ROOF_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) {
+      for (let gz = gz0; gz <= gz1; gz++) {
+        const key = `${gx},${gz}`;
+        let arr = roofTriGrid.get(key);
+        if (!arr) {
+          arr = [];
+          roofTriGrid.set(key, arr);
+        }
+        arr.push(tri);
+      }
+    }
+  }
+
+  function sampleRoofSurfaceHeight(x, z, maxBelowY = Infinity) {
+    const arr = roofTriGrid.get(`${Math.floor(x / ROOF_CELL)},${Math.floor(z / ROOF_CELL)}`);
+    if (!arr || arr.length === 0) return null;
+    let bestY = null;
+    // Small 0.04 barycentric padding bridges micro-seams between adjacent pitched roof tiles cleanly
+    const eps = -0.04;
+    for (let i = 0; i < arr.length; i++) {
+      const t = arr[i];
+      if (x < t[9] - 0.12 || x > t[10] + 0.12 || z < t[11] - 0.12 || z > t[12] + 0.12) continue;
+      const ax = t[0], ay = t[1], az = t[2];
+      const bx = t[3], by = t[4], bz = t[5];
+      const cx = t[6], cy = t[7], cz = t[8];
+      const invDet = t[13];
+      const w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) * invDet;
+      if (w0 < eps) continue;
+      const w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) * invDet;
+      if (w1 < eps) continue;
+      const w2 = 1.0 - w0 - w1;
+      if (w2 < eps) continue;
+      const cw0 = w0 < 0 ? 0 : w0;
+      const cw1 = w1 < 0 ? 0 : w1;
+      const cw2 = w2 < 0 ? 0 : w2;
+      const sum = cw0 + cw1 + cw2 || 1;
+      const y = (cw0 * ay + cw1 * by + cw2 * cy) / sum;
+      if (y <= maxBelowY && (bestY === null || y > bestY)) {
+        bestY = y;
+      }
+    }
+    return bestY;
+  }
+
+  function sampleRoofSupport(x, z, radius = 0.35, maxBelowY = Infinity) {
+    let best = sampleRoofSurfaceHeight(x, z, maxBelowY);
+    if (radius > 0.05) {
+      const r = radius;
+      const y1 = sampleRoofSurfaceHeight(x + r, z, maxBelowY);
+      const y2 = sampleRoofSurfaceHeight(x - r, z, maxBelowY);
+      const y3 = sampleRoofSurfaceHeight(x, z + r, maxBelowY);
+      const y4 = sampleRoofSurfaceHeight(x, z - r, maxBelowY);
+      if (y1 !== null && (best === null || y1 > best)) best = y1;
+      if (y2 !== null && (best === null || y2 > best)) best = y2;
+      if (y3 !== null && (best === null || y3 > best)) best = y3;
+      if (y4 !== null && (best === null || y4 > best)) best = y4;
+    }
+    return best;
+  }
+
   function getRealRoofHeight(x, z, searchRadius = 10) {
     const gx0 = Math.floor(x / 4);
     const gz0 = Math.floor(z / 4);
@@ -1094,6 +1181,12 @@ export async function loadSwissBuildings3D(
         const cy = (v0.y + v1.y + v2.y) / 3;
         const cz = (v0.z + v1.z + v2.z) / 3;
 
+        // Route ANY pitched roof slope (|fN.y| > 0.34 & elevated above 9.0m) cleanly into the authentic
+        // Geneva standing-seam zinc / clay tile roof shader (fixes bright white sloped attic roofs on Rolex & Quai palaces!)
+        const triIsRoof = isRoof || (Math.abs(fN.y) > 0.34 && cy > 9.0);
+        const triSeenSet = triIsRoof ? seenRoofTris : seenWallTris;
+        const triBucketMap = triIsRoof ? roofBuckets : wallBuckets;
+
         // Exact sorted 5cm quantized 3-vertex deduplication
         let k0 = `${Math.round(v0.x * 20)},${Math.round(v0.y * 20)},${Math.round(v0.z * 20)}`;
         let k1 = `${Math.round(v1.x * 20)},${Math.round(v1.y * 20)},${Math.round(v1.z * 20)}`;
@@ -1114,12 +1207,16 @@ export async function loadSwissBuildings3D(
           k1 = tmp;
         }
         const dedupKey = `${k0}|${k1}|${k2}`;
-        if (seenSet.has(dedupKey)) continue;
-        seenSet.add(dedupKey);
+        if (triSeenSet.has(dedupKey)) continue;
+        triSeenSet.add(dedupKey);
 
         // Ensure roof faces point upward (+Y) cleanly if any CityGML roof polygon had flipped winding
-        if (isRoof && fN.y < -0.25 && cy > 8.0) {
+        if (triIsRoof && fN.y < -0.25 && cy > 8.0) {
           fN.negate();
+        }
+        // Record every real 3D roof & terrace triangle into the spatial landing collider grid!
+        if ((triIsRoof || (Math.abs(fN.y) > 0.22 && cy > 4.2)) && Math.abs(fN.y) > 0.12) {
+          insertRoofTriangle(v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
         }
 
         const hLen = Math.hypot(fN.x, fN.z);
@@ -1134,12 +1231,12 @@ export async function loadSwissBuildings3D(
         const midX = (minXTri + maxXTri) * 0.5;
         const midZ = (minZTri + maxZTri) * 0.5;
 
-        const bucket = bucketMap.get(cx, cz);
-        const groundY = isRoof ? 0 : getGroundHeight(midX, midZ);
+        const bucket = triBucketMap.get(cx, cz);
+        const groundY = triIsRoof ? 0 : getGroundHeight(midX, midZ);
 
         let meta;
         let wallProfile = null;
-        if (isRoof) {
+        if (triIsRoof) {
           meta = classifyRoofMeta(midX, midZ);
         } else {
           wallProfile = osmLookup.lookupProfile(midX, midZ, fN.x, fN.z);
@@ -1251,6 +1348,26 @@ export async function loadSwissBuildings3D(
           }
         }
 
+        // Anchor horizontal UVs cleanly to each vertical wall segment's start corner & snap to integer ground bays
+        // so arched storefronts & window bays NEVER get sliced in half across 90-degree building corners!
+        let uOrigin = 0;
+        let uScale = 1.0;
+        if (!isRoof && Math.abs(fN.y) < 0.35) {
+          const u0 = v0.x * tx + v0.z * tz;
+          const u1 = v1.x * tx + v1.z * tz;
+          const u2 = v2.x * tx + v2.z * tz;
+          const uMin = Math.min(u0, u1, u2);
+          const uMax = Math.max(u0, u1, u2);
+          const spanU = uMax - uMin;
+          if (spanU >= 2.2) {
+            uOrigin = uMin;
+            const bayTarget = 10.6 / 3.0; // exact ground-floor bay width (3.533m)
+            const nBays = Math.max(1, Math.round(spanU / bayTarget));
+            const desiredU = nBays * bayTarget;
+            uScale = Math.max(0.82, Math.min(1.22, desiredU / spanU));
+          }
+        }
+
         // Emit 3 flat-faceted vertices with exact metric UVs (uMeters, hAboveGround), face normals & coherent style meta!
         const verts = [v0, v1, v2];
         for (let k = 0; k < 3; k++) {
@@ -1258,7 +1375,8 @@ export async function loadSwissBuildings3D(
           bucket.pos.push(vp.x, vp.y, vp.z);
           bucket.norm.push(fN.x, fN.y, fN.z);
           bucket.faceN.push(fN.x, fN.y, fN.z);
-          bucket.uv.push(vp.x * tx + vp.z * tz, isRoof ? vp.y : (vp.y - groundY) * vScale);
+          const rawU = vp.x * tx + vp.z * tz;
+          bucket.uv.push(triIsRoof ? rawU : (rawU - uOrigin) * uScale, triIsRoof ? vp.y : (vp.y - groundY) * vScale);
           bucket.meta.push(meta[0], meta[1], meta[2], meta[3]);
         }
       }
@@ -1297,47 +1415,54 @@ export async function loadSwissBuildings3D(
       const wtx = nz;
       const wtz = -nx;
 
-      // Require at least 2.6m of open air directly outside the wall (skips tight inner lightwells!)
-      if (osmLookup.isPointInsideAnyBuilding(cx + nx * 2.5, cz + nz * 2.5)) continue;
-      // Also check wide open street frontage before adding deeper projecting canopies/balconies
-      const openWide = !osmLookup.isPointInsideAnyBuilding(cx + nx * 4.2, cz + nz * 4.2);
+      // Require at least 2.8m of open air directly outside the wall AND verify both ends stay outside neighbor footprints!
+      if (osmLookup.isPointInsideAnyBuilding(cx + nx * 2.8, cz + nz * 2.8)) continue;
+      const openWide = !osmLookup.isPointInsideAnyBuilding(cx + nx * 4.5, cz + nz * 4.5);
 
-      const halfSpan = Math.max(0.8, len * 0.5 - 0.14);
+      const halfSpan = Math.max(0.6, len * 0.5 - 0.34);
+      const endLeftClear = !osmLookup.isPointInsideAnyBuilding(cx - wtx * halfSpan + nx * 1.4, cz - wtz * halfSpan + nz * 1.4);
+      const endRightClear = !osmLookup.isPointInsideAnyBuilding(cx + wtx * halfSpan + nx * 1.4, cz + wtz * halfSpan + nz * 1.4);
+      const endsClear = endLeftClear && endRightClear;
       const [sr, sg, sb] = profile.corniceRgb;
 
       // 1. Ground-to-First-Floor Dressed Stone Belt Cornice (sits cleanly at 4.92m above street fascia signs!)
-      if (profile.upperLayer !== 3 && profile.upperLayer !== 4) {
-        pushWallBox(stoneBuf, cx, groundY + 4.92, cz, wtx, wtz, nx, nz, halfSpan, 0.13, -0.02, 0.25, sr, sg, sb);
+      if (profile.upperLayer !== 3 && profile.upperLayer !== 4 && endsClear) {
+        pushWallBox(stoneBuf, cx, groundY + 4.92, cz, wtx, wtz, nx, nz, halfSpan, 0.13, -0.02, 0.24, sr, sg, sb);
       }
 
       // 2. Crowning Top Eave Cornice (casts authentic raking Geneva sun shadows down historic facades!)
-      if (profile.hasEaveCornice && wallH >= 10.5 && wallH <= 32.0) {
-        pushWallBox(stoneBuf, cx, maxY - 0.24, cz, wtx, wtz, nx, nz, halfSpan, 0.17, -0.02, 0.34, sr, sg, sb);
+      if (profile.hasEaveCornice && endsClear && wallH >= 10.5 && wallH <= 32.0) {
+        pushWallBox(stoneBuf, cx, maxY - 0.24, cz, wtx, wtz, nx, nz, halfSpan, 0.16, -0.02, 0.30, sr, sg, sb);
       }
 
-      // 3. Ground-Floor Carved Stone Pilasters along luxury Quai & Rue du Rhône colonnades
-      if (profile.hasPilasters && len >= 5.2 && openWide) {
-        const bayCount = Math.max(1, Math.min(10, Math.round(len / 3.8)));
+      // 3. Ground-Floor Carved Stone Pilasters strictly synchronized with the integer ground bay piers (NEVER slicing windows!)
+      if (profile.hasPilasters && len >= 5.2 && openWide && endsClear) {
+        const bayTarget = 10.6 / 3.0;
+        const bayCount = Math.max(1, Math.min(10, Math.round(len / bayTarget)));
         const step = len / bayCount;
         for (let b = 0; b <= bayCount; b++) {
           const offset = -len * 0.5 + b * step;
-          if (Math.abs(offset) > halfSpan - 0.12) continue;
+          if (Math.abs(offset) > halfSpan + 0.12) continue;
           const px = cx + wtx * offset;
           const pz = cz + wtz * offset;
-          pushWallBox(stoneBuf, px, groundY + 2.36, pz, wtx, wtz, nx, nz, 0.21, 2.34, -0.02, 0.16, sr * 0.96, sg * 0.96, sb * 0.96);
+          // Pilaster shaft
+          pushWallBox(stoneBuf, px, groundY + 2.38, pz, wtx, wtz, nx, nz, 0.22, 2.26, -0.02, 0.14, sr * 0.96, sg * 0.96, sb * 0.96);
+          // Honed plinth base & carved capital
+          pushWallBox(stoneBuf, px, groundY + 0.28, pz, wtx, wtz, nx, nz, 0.27, 0.28, -0.02, 0.19, sr * 0.62, sg * 0.62, sb * 0.62);
+          pushWallBox(stoneBuf, px, groundY + 4.62, pz, wtx, wtz, nx, nz, 0.28, 0.14, -0.02, 0.21, sr * 1.02, sg * 1.02, sb * 1.02);
         }
       }
 
       // 4. Belle Époque 3D Projecting Piano Nobile & Upper Stone Balconies + Wrought-Iron Railings (ref_01 & ref_03 Dior!)
-      if (profile.hasBalcony3D && len >= 5.4 && openWide) {
-        const balSpan = Math.max(1.4, halfSpan - 0.32);
+      if (profile.hasBalcony3D && len >= 5.8 && openWide && endsClear) {
+        const balSpan = Math.max(1.4, halfSpan - 0.36);
         const balLevels = [groundY + 5.04];
         if (wallH >= 15.0) balLevels.push(groundY + 11.42);
 
         for (let li = 0; li < balLevels.length; li++) {
           const by = balLevels[li];
           if (by > maxY - 2.6) continue;
-          const proj = li === 0 ? 0.68 : 0.62;
+          const proj = li === 0 ? 0.64 : 0.58;
           // Stone balcony slab
           pushWallBox(stoneBuf, cx, by, cz, wtx, wtz, nx, nz, balSpan, 0.09, -0.02, proj, sr, sg, sb);
           // Carved limestone corbel brackets beneath balcony slab
@@ -1356,7 +1481,7 @@ export async function loadSwissBuildings3D(
               0.11,
               0.15,
               -0.02,
-              proj * 0.78,
+              proj * 0.76,
               sr * 0.90,
               sg * 0.90,
               sb * 0.90
@@ -1375,7 +1500,7 @@ export async function loadSwissBuildings3D(
           // End returns back to facade wall
           pushWallBox(ironBuf, cx - wtx * (balSpan - 0.025), railTopY, cz - wtz * (balSpan - 0.025), wtx, wtz, nx, nz, 0.025, 0.025, 0.0, proj - 0.02);
           pushWallBox(ironBuf, cx + wtx * (balSpan - 0.025), railTopY, cz + wtz * (balSpan - 0.025), wtx, wtz, nx, nz, 0.025, 0.025, 0.0, proj - 0.02);
-          // Vertical wrought-iron balusters (spaced ~0.58m so silhouette reads crisply at tiny vertex cost!)
+          // Vertical wrought-iron balusters
           const pCount = Math.max(4, Math.min(34, Math.round((balSpan * 2) / 0.58)));
           for (let pi = 0; pi <= pCount; pi++) {
             const u = -balSpan + (pi / pCount) * (balSpan * 2);
@@ -1384,26 +1509,25 @@ export async function loadSwissBuildings3D(
         }
       }
 
-      // 5. Sleek Rue du Rhône & Modern Swiss Dark-Bronze Cantilevered Sidewalk Canopies ('marquises', ref_03 & ref_04!)
-      if (profile.canopyKind === 'modern_metal' && len >= 5.2 && openWide) {
-        const canSpan = Math.max(1.5, halfSpan - 0.28);
-        const cyCan = groundY + 3.82;
-        pushWallBox(metalBuf, cx, cyCan, cz, wtx, wtz, nx, nz, canSpan, 0.075, -0.02, 1.38);
-        // Slender steel tension brackets along the canopy
+      // 5. Sleek Rue du Rhône Dark-Bronze Cantilevered Sidewalk Canopies ('marquises') — skipped near real OSM brand awnings so ZERO canopy-sign clipping!
+      const nearBrand = osmLookup.isNearBrandSign(cx, cz, 8.5);
+      if (profile.canopyKind === 'modern_metal' && len >= 6.0 && openWide && endsClear && !nearBrand) {
+        const canSpan = Math.max(1.5, halfSpan - 0.42);
+        const cyCan = groundY + 3.88;
+        pushWallBox(metalBuf, cx, cyCan, cz, wtx, wtz, nx, nz, canSpan, 0.07, -0.02, 1.28);
         const tCount = Math.max(2, Math.min(6, Math.round((canSpan * 2) / 4.2) + 1));
         for (let ti = 0; ti < tCount; ti++) {
           const u = -canSpan + 0.5 + (ti / Math.max(1, tCount - 1)) * Math.max(0.1, canSpan * 2 - 1.0);
-          pushWallBox(metalBuf, cx + wtx * u, cyCan + 0.24, cz + wtz * u, wtx, wtz, nx, nz, 0.025, 0.18, 0.0, 0.88);
+          pushWallBox(metalBuf, cx + wtx * u, cyCan + 0.20, cz + wtz * u, wtx, wtz, nx, nz, 0.022, 0.14, 0.0, 0.82);
         }
       }
 
       // 6. Vieille-Ville & Place du Molard Heritage Sloped Fabric Café/Boutique Awnings!
-      if (profile.canopyKind === 'fabric_awning' && len >= 4.4 && openWide) {
-        const awSpan = Math.max(1.2, Math.min(halfSpan - 0.36, 5.2));
+      if (profile.canopyKind === 'fabric_awning' && len >= 5.0 && openWide && endsClear && !nearBrand) {
+        const awSpan = Math.max(1.2, Math.min(halfSpan - 0.42, 4.8));
         const [ar, ag, ab] = profile.awningRgb;
-        pushSlopedAwning(awningBuf, cx, groundY + 3.56, cz, wtx, wtz, nx, nz, awSpan, 1.24, 0.48, 0.22, ar, ag, ab);
-        // Dark-iron wall roller box housing the retracted fabric
-        pushWallBox(metalBuf, cx, groundY + 3.60, cz, wtx, wtz, nx, nz, awSpan + 0.06, 0.07, -0.02, 0.14);
+        pushSlopedAwning(awningBuf, cx, groundY + 3.60, cz, wtx, wtz, nx, nz, awSpan, 1.18, 0.46, 0.20, ar, ag, ab);
+        pushWallBox(metalBuf, cx, groundY + 3.64, cz, wtx, wtz, nx, nz, awSpan + 0.06, 0.065, -0.02, 0.14);
       }
     }
 
@@ -1524,6 +1648,8 @@ export async function loadSwissBuildings3D(
     group: swissGroup,
     nightUniform,
     getRealRoofHeight,
+    sampleRoofSurfaceHeight,
+    sampleRoofSupport,
     roofMaxY,
     remainingDone,
     tileCount: tiles.length,

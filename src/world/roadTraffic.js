@@ -503,6 +503,128 @@ export function setupBlenderTpgBus(template, routeNum = '25', dest = 'JARDIN BOT
   });
 
   if (!tailMat) tailMat = new THREE.MeshStandardMaterial({ color: 0xff1111, emissive: 0xff1111, emissiveIntensity: 1.4 });
+
+  // Attach crisp authentic Geneva TPG side livery branding ribbons, front/rear 'tpg' badges & Swiss 'GE' plates!
+  const liveryCss = '#' + new THREE.Color(liveryHex).getHexString();
+  const sideCan = document.createElement('canvas');
+  sideCan.width = 1024;
+  sideCan.height = 160;
+  const sCtx = sideCan.getContext('2d');
+  sCtx.fillStyle = liveryCss;
+  sCtx.fillRect(0, 0, 1024, 160);
+  // Crisp Geneva diagonal white architectural speed stripe across the lower skirt
+  sCtx.fillStyle = '#f8f9fb';
+  sCtx.beginPath();
+  sCtx.moveTo(0, 0);
+  sCtx.lineTo(310, 0);
+  sCtx.lineTo(265, 160);
+  sCtx.lineTo(0, 160);
+  sCtx.closePath();
+  sCtx.fill();
+  // Bold authentic lowercase 'tpg' brand wordmark
+  sCtx.fillStyle = liveryCss;
+  sCtx.font = '900 94px "Helvetica Neue", Arial, sans-serif';
+  sCtx.textBaseline = 'middle';
+  sCtx.fillText('tpg', 36, 82);
+  // Subtle 'transports publics genevois' official Swiss subtitle on livery side
+  sCtx.fillStyle = '#ffffff';
+  sCtx.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
+  sCtx.fillText('transports publics genevois', 332, 68);
+  sCtx.fillStyle = 'rgba(255,255,255,0.86)';
+  sCtx.font = 'bold 26px "Helvetica Neue", Arial, sans-serif';
+  sCtx.fillText(`LIGNE ${routeNum}  ·  ${dest}`, 332, 114);
+  // Official route badge pill at rear side quarter
+  sCtx.fillStyle = badgeColor;
+  sCtx.beginPath();
+  sCtx.roundRect(872, 34, 118, 92, 14);
+  sCtx.fill();
+  sCtx.strokeStyle = '#ffffff';
+  sCtx.lineWidth = 4;
+  sCtx.stroke();
+  sCtx.fillStyle = '#ffffff';
+  sCtx.font = '900 54px "Helvetica Neue", Arial, sans-serif';
+  sCtx.textAlign = 'center';
+  sCtx.fillText(routeNum, 931, 84);
+
+  const sideTex = new THREE.CanvasTexture(sideCan);
+  sideTex.colorSpace = THREE.SRGBColorSpace;
+  sideTex.anisotropy = 8;
+  const sideBrandingMat = new THREE.MeshPhysicalMaterial({
+    map: sideTex,
+    roughness: 0.24,
+    metalness: 0.10,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.08,
+  });
+
+  // Left & right side TPG livery branding panels flush on lower skirt (avoids wheel arches)
+  const leftPanel = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 0.72), sideBrandingMat);
+  leftPanel.position.set(1.298, 0.86, 0.15);
+  leftPanel.rotation.y = Math.PI * 0.5;
+  const rightPanel = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 0.72), sideBrandingMat);
+  rightPanel.position.set(-1.298, 0.86, 0.15);
+  rightPanel.rotation.y = -Math.PI * 0.5;
+
+  // Swiss Geneva 'GE' license plate + 'tpg' front/rear emblem
+  const plateCan = document.createElement('canvas');
+  plateCan.width = 256;
+  plateCan.height = 64;
+  const pCtx = plateCan.getContext('2d');
+  pCtx.fillStyle = '#f8f9fb';
+  pCtx.fillRect(0, 0, 256, 64);
+  pCtx.strokeStyle = '#181c22';
+  pCtx.lineWidth = 5;
+  pCtx.strokeRect(3, 3, 250, 58);
+  // Red Swiss cross crest on left + Geneva Canton shield on right
+  pCtx.fillStyle = '#d91822';
+  pCtx.fillRect(12, 14, 28, 36);
+  pCtx.fillStyle = '#ffffff';
+  pCtx.fillRect(23, 20, 6, 24);
+  pCtx.fillRect(17, 29, 18, 6);
+  pCtx.fillStyle = '#141820';
+  pCtx.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
+  pCtx.textAlign = 'center';
+  pCtx.textBaseline = 'middle';
+  const plateNum = 104200 + ((routeNum.charCodeAt(0) * 1731) % 85000);
+  pCtx.fillText(`GE ${plateNum}`, 144, 34);
+  const plateTex = new THREE.CanvasTexture(plateCan);
+  plateTex.colorSpace = THREE.SRGBColorSpace;
+  const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.35, metalness: 0.15 });
+
+  const frontPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.14), plateMat);
+  frontPlate.position.set(0, 0.52, 6.06);
+  const rearPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.14), plateMat);
+  rearPlate.position.set(0, 0.62, -6.06);
+  rearPlate.rotation.y = Math.PI;
+
+  // Front & rear crisp 'tpg' logo badge
+  const badgeCan = document.createElement('canvas');
+  badgeCan.width = 256;
+  badgeCan.height = 96;
+  const bCtx = badgeCan.getContext('2d');
+  bCtx.fillStyle = '#ffffff';
+  bCtx.fillRect(0, 0, 256, 96);
+  bCtx.fillStyle = liveryCss;
+  bCtx.font = '900 72px "Helvetica Neue", Arial, sans-serif';
+  bCtx.textAlign = 'center';
+  bCtx.textBaseline = 'middle';
+  bCtx.fillText('tpg', 128, 50);
+  const badgeTex = new THREE.CanvasTexture(badgeCan);
+  badgeTex.colorSpace = THREE.SRGBColorSpace;
+  const badgeMat = new THREE.MeshStandardMaterial({ map: badgeTex, roughness: 0.25 });
+  const frontLogo = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.24), badgeMat);
+  frontLogo.position.set(0, 1.02, 6.06);
+  const rearLogo = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 0.28), badgeMat);
+  rearLogo.position.set(0, 1.24, -6.06);
+  rearLogo.rotation.y = Math.PI;
+
+  // Warm interior passenger cabin LED ceiling glow strip (illuminates bus interior through windows at night!)
+  const cabinLightMat = new THREE.MeshBasicMaterial({ color: 0xffefc8, transparent: true, opacity: 0.85 });
+  const cabinLight = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.06, 9.6), cabinLightMat);
+  cabinLight.position.set(0, 2.54, 0);
+
+  model.add(leftPanel, rightPanel, frontPlate, rearPlate, frontLogo, rearLogo, cabinLight);
+
   return { model, wheelMeshes, shadowMeshes, tailMat };
 }
 
@@ -921,14 +1043,18 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
     carHolders.push(entity);
   }
 
-  // Spawn 5 Pre-Batched High-Poly Blender-Rendered Geneva TPG City Buses following exact 1:1 Geneva roads!
-  // Mix of modern 2025 Geneva White+Orange livery (#f26522) and classic White+TPG Royal Blue (#3852a4)!
+  // Spawn 9 Pre-Batched High-Poly Blender-Rendered Geneva TPG City Buses following exact 1:1 Geneva roads!
+  // Mix of authentic 2025 Geneva White+Orange TPG livery (#f26522) and classic White+TPG Royal Blue (#3852a4)!
   const busSpecs = [
-    { routeIdx: 0, num: '25', dest: 'JARDIN BOTANIQUE', badge: '#d44292', livery: 0xf26522, dir: 1, frac: 0.14 },
+    { routeIdx: 0, num: '25', dest: 'JARDIN BOTANIQUE', badge: '#d44292', livery: 0xf26522, dir: 1,  frac: 0.14 },
     { routeIdx: 0, num: '6',  dest: 'VERNIER',          badge: '#0077b6', livery: 0x3852a4, dir: -1, frac: 0.72 },
-    { routeIdx: 1, num: '8',  dest: 'VEYRIER',          badge: '#1f7a4c', livery: 0xf26522, dir: 1, frac: 0.28 },
-    { routeIdx: 2, num: '10', dest: 'AÉROPORT',         badge: '#0096c7', livery: 0x3852a4, dir: -1, frac: 0.55 },
-    { routeIdx: 3, num: '20', dest: 'BEL-AIR',          badge: '#e07a5f', livery: 0xf26522, dir: 1, frac: 0.42 },
+    { routeIdx: 0, num: '1',  dest: 'PETIT-BEL-AIR',    badge: '#d9282f', livery: 0xf26522, dir: 1,  frac: 0.48 },
+    { routeIdx: 1, num: '8',  dest: 'VEYRIER',          badge: '#1f7a4c', livery: 0xf26522, dir: 1,  frac: 0.24 },
+    { routeIdx: 1, num: '2',  dest: 'BERNEX',           badge: '#f59f00', livery: 0x3852a4, dir: -1, frac: 0.68 },
+    { routeIdx: 2, num: '10', dest: 'AÉROPORT',         badge: '#0096c7', livery: 0x3852a4, dir: -1, frac: 0.35 },
+    { routeIdx: 2, num: 'E',  dest: 'HERMANCE',         badge: '#2b8a3e', livery: 0xf26522, dir: 1,  frac: 0.78 },
+    { routeIdx: 3, num: '20', dest: 'BELLEVUE',         badge: '#e07a5f', livery: 0xf26522, dir: 1,  frac: 0.42 },
+    { routeIdx: 4, num: '9',  dest: 'THÔNEX',           badge: '#7950f2', livery: 0x3852a4, dir: -1, frac: 0.52 },
   ];
   const busEntities = [];
   for (const bs of busSpecs) {
@@ -1066,17 +1192,22 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
     }
   });
 
-  // Real 1:1 Geneva TPG stops for authentic passenger stop pauses & chime announcements
+  // Real 1:1 Geneva OSM TPG stops for authentic AI bus/tram passenger stop pauses & chime announcements
   const GENEVA_TRANSIT_STOPS = [
-    { name: 'Bel-Air',           x: -302, z: 214 },
-    { name: 'Place du Molard',   x: -135, z: 222 },
-    { name: 'Longemalle',        x: -45,  z: 245 },
-    { name: 'Rive',              x: 105,  z: 298 },
-    { name: 'Jardin Anglais',    x: 52,   z: 185 },
-    { name: 'Pont du Mont-Blanc',x: -85,  z: 112 },
-    { name: 'Quai des Bergues',  x: -145, z: -158 },
-    { name: 'Place des Alpes',   x: -55,  z: -245 },
-    { name: 'Quai Gustave-Ador', x: 265,  z: 205 },
+    { name: 'Bel-Air',              x: -302, z: 214 },
+    { name: 'Molard',               x: -102, z: 231 },
+    { name: 'Horloge Fleurie',      x: 4,    z: 155 },
+    { name: 'Jardin Anglais',       x: 56,   z: 190 },
+    { name: 'Métropole',            x: 118,  z: 302 },
+    { name: 'Rive',                 x: 197,  z: 464 },
+    { name: 'Place des Eaux-Vives', x: 440,  z: 405 },
+    { name: 'Pont du Mont-Blanc',   x: -85,  z: 112 },
+    { name: 'Mont-Blanc',           x: -201, z: -128 },
+    { name: 'Quai du Mont-Blanc',   x: -134, z: -156 },
+    { name: 'Place des Alpes',      x: -55,  z: -245 },
+    { name: 'Bains des Pâquis',     x: 195,  z: -480 },
+    { name: 'Quai Gustave-Ador',    x: 265,  z: 205 },
+    { name: 'Place de Neuve',       x: -472, z: 498 },
   ];
 
   // Update all road-following cars, buses & trams with smooth heading, transit stop pauses, player hail-braking, obstacle awareness & manual rail driving!
@@ -1201,8 +1332,8 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
           }
         }
 
-        // Authentic Geneva TPG stop pauses & next-stop announcements while player is riding as a passenger!
-        if (isRidden && (e.kind === 'bus' || e.kind === 'tram')) {
+        // Authentic Geneva TPG stop pauses for ALL buses & trams (whether player is riding OR waiting at a bus stop!)
+        if (e.kind === 'bus' || e.kind === 'tram') {
           if (e.stopTimer > 0) {
             e.stopTimer = Math.max(0, e.stopTimer - dt);
             targetSpeed = 0;
@@ -1211,11 +1342,11 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
               if (si === e.lastStopIdx) continue;
               const st = GENEVA_TRANSIT_STOPS[si];
               const sd = Math.hypot(st.x - e.x, st.z - e.z);
-              if (sd < 20) {
+              if (sd < 16) {
                 e.lastStopIdx = si;
-                e.stopTimer = 2.6;
+                e.stopTimer = isRidden ? 2.6 : 3.4;
                 targetSpeed = 0;
-                if (riderState?.onStopArrive) riderState.onStopArrive(e, st.name);
+                if (isRidden && riderState?.onStopArrive) riderState.onStopArrive(e, st.name);
                 break;
               }
             }

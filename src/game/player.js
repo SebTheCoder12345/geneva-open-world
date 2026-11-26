@@ -19,7 +19,7 @@ export function createPlayer(scene) {
       depthWrite: false,
     })
   );
-  contactShadow.position.y = 0.04;
+  contactShadow.position.y = 0.02;
   group.add(contactShadow);
 
   let animator = null;
@@ -183,7 +183,7 @@ export function createPlayer(scene) {
 
     let anchorX = item.x;
     let anchorZ = item.z;
-    let anchorY = Number.isFinite(item.y) ? item.y : getGroundHeight(anchorX, anchorZ) + 0.16;
+    let anchorY = Number.isFinite(item.y) ? item.y : getGroundHeight(anchorX, anchorZ) + 0.255;
     let anchorYaw = Number.isFinite(item.yaw) ? item.yaw : state.yaw;
 
     if (item.benchWidth) {
@@ -198,7 +198,7 @@ export function createPlayer(scene) {
       const localZ = item.seatLocalZ || 0.08;
       anchorX = item.x + cosY * clampedX + sinY * localZ;
       anchorZ = item.z - sinY * clampedX + cosY * localZ;
-      anchorY = Number.isFinite(item.y) ? item.y : getGroundHeight(anchorX, anchorZ) + 0.16;
+      anchorY = Number.isFinite(item.y) ? item.y : getGroundHeight(anchorX, anchorZ) + 0.255;
     } else if (item.rimRadius) {
       // Approach circular fountain / monument / bin from player's exact angle and face squarely inward!
       const dx = state.x - item.x;
@@ -208,7 +208,7 @@ export function createPlayer(scene) {
       const uz = dz / len;
       anchorX = item.x + ux * item.rimRadius;
       anchorZ = item.z + uz * item.rimRadius;
-      anchorY = getGroundHeight(anchorX, anchorZ) + 0.16;
+      anchorY = getGroundHeight(anchorX, anchorZ) + 0.255;
       anchorYaw = Math.atan2(-ux, -uz);
     }
 
@@ -219,7 +219,7 @@ export function createPlayer(scene) {
       exitX = anchorX;
       exitZ = anchorZ;
     }
-    const exitY = getGroundHeight(exitX, exitZ) + 0.16;
+    const exitY = getGroundHeight(exitX, exitZ) + 0.255;
 
     interact = {
       item,
@@ -268,7 +268,7 @@ export function createPlayer(scene) {
     const sp = SPAWNS[spawnKey] || SPAWNS.rade;
     state.x = sp.x;
     state.z = sp.z;
-    state.y = getGroundHeight(sp.x, sp.z) + 0.18;
+    state.y = getGroundHeight(sp.x, sp.z) + 0.26;
     state.vx = state.vy = state.vz = 0;
     state.yaw = sp.yaw;
     state.grounded = true;
@@ -340,7 +340,7 @@ export function createPlayer(scene) {
     return true;
   }
 
-  function fireHook(camera, queryColliders) {
+  function fireHook(camera, queryColliders, sampleRoofHeight = null) {
     if (knockdownTimer > 0) return;
     rollTimer = 0;
     emote = null;
@@ -350,13 +350,20 @@ export function createPlayer(scene) {
     const origin = new THREE.Vector3(state.x, state.y + 1.6, state.z);
     let target = origin.clone().addScaledVector(dir, 42);
 
-    for (let d = 4; d <= 75; d += 2.5) {
+    for (let d = 4; d <= 85; d += 2.0) {
       const p = origin.clone().addScaledVector(dir, d);
+      const roofY = sampleRoofHeight ? sampleRoofHeight(p.x, p.z, Infinity, 0.45) : null;
+      if (roofY !== null && p.y <= roofY + 2.2) {
+        // Aim smoothly onto the real 3D rooftop surface so grappling vaults cleanly onto any Geneva roof!
+        target = new THREE.Vector3(p.x, roofY + 1.05, p.z);
+        break;
+      }
       const near = queryColliders(p.x, p.z);
       let hit = false;
       for (const b of near) {
         if (p.x >= b.minX && p.x <= b.maxX && p.z >= b.minZ && p.z <= b.maxZ && p.y <= b.maxY) {
-          target = new THREE.Vector3(p.x, Math.min(b.maxY + 1.2, p.y + 2), p.z);
+          const topY = roofY !== null ? Math.max(roofY, b.maxY) : b.maxY;
+          target = new THREE.Vector3(p.x, topY + 1.05, p.z);
           hit = true;
           break;
         }
@@ -365,7 +372,7 @@ export function createPlayer(scene) {
     }
     target.y = Math.max(getGroundHeight(target.x, target.z) + 1.5, target.y);
     state.hookTarget = target;
-    state.hookTimer = 1.15;
+    state.hookTimer = 1.25;
     state.grounded = false;
     state.swimming = false;
     hookLine.visible = true;
@@ -459,7 +466,7 @@ export function createPlayer(scene) {
 
   const _fxReusable = { cameraShake: 0, impactSfx: null, toast: null, footstep: null, scuff: false, jump: false };
 
-  function update(dt, keys, cameraYaw, queryColliders, visible = true, dynamicColliders = []) {
+  function update(dt, keys, cameraYaw, queryColliders, visible = true, dynamicColliders = [], sampleRoofHeight = null) {
     const fxOut = _fxReusable;
     fxOut.cameraShake = 0;
     fxOut.impactSfx = null;
@@ -814,6 +821,7 @@ export function createPlayer(scene) {
         }
       }
 
+      const prevY = state.y;
       if (state.swimming) {
         // Buoyant lake surface float (head & shoulders cleanly above Lac Léman!)
         const swimSurfaceY = -0.84;
@@ -825,13 +833,14 @@ export function createPlayer(scene) {
         state.y += state.vy * dt;
       }
 
-      // Swept sub-stepped movement + 3-pass solid collision resolution (ZERO tunneling through thin walls, benches, café tables or cars!)
+      // Swept sub-stepped movement + 3-pass solid collision resolution (ZERO tunneling through walls, roofs, benches or cars!)
       const playerRadius = 0.48;
       const moveDist = Math.hypot(state.vx * dt, state.vz * dt);
       const pSteps = Math.max(1, Math.min(5, Math.ceil(moveDist / 0.28)));
       const pdt = dt / pSteps;
-      let floorY = getGroundHeight(state.x, state.z) + 0.16;
+      let floorY = getGroundHeight(state.x, state.z) + 0.255;
       if (isWater(state.x, state.z)) floorY = -0.86;
+      const roofRefY = Math.max(prevY, state.y) + 1.65;
 
       for (let ps = 0; ps < pSteps; ps++) {
         const clamped = clampToWorld(state.x + state.vx * pdt, state.z + state.vz * pdt);
@@ -843,14 +852,28 @@ export function createPlayer(scene) {
           state.z = clamped.z;
         }
 
-        const gHere = isWater(state.x, state.z) ? -0.86 : getGroundHeight(state.x, state.z) + 0.16;
+        let gHere = isWater(state.x, state.z) ? -0.86 : getGroundHeight(state.x, state.z) + 0.255;
+        // Exact real 3D swissBUILDINGS3D rooftop surface support (handles flat terraces, pitched mansards & fast falls!)
+        const realRoofY = sampleRoofHeight ? sampleRoofHeight(state.x, state.z, roofRefY, 0.36) : null;
+        const onRealRoof =
+          realRoofY !== null &&
+          realRoofY > gHere + 1.2 &&
+          (prevY >= realRoofY - 1.45 || state.y >= realRoofY - 1.45);
+        if (onRealRoof && realRoofY > gHere) {
+          gHere = realRoofY;
+        }
         if (ps === pSteps - 1) floorY = gHere;
 
         for (let iter = 0; iter < 3; iter++) {
           const near = queryColliders(state.x, state.z);
           for (let i = 0; i < near.length; i++) {
-            const res = resolveCircleAgainstCollider(state.x, state.y, state.z, playerRadius, near[i], true);
-            if (res.floorY > floorY) floorY = res.floorY;
+            const c = near[i];
+            // When standing/landing on a real 3D rooftop mesh, don't let lower/mismatched OSM wall prisms eject the player!
+            if (onRealRoof && (c.kind === 'poly' || c.isWall) && (c.maxY ?? 0) <= realRoofY + 3.0) {
+              continue;
+            }
+            const res = resolveCircleAgainstCollider(state.x, state.y, state.z, playerRadius, c, true);
+            if (res.floorY > floorY && (!onRealRoof || c.kind !== 'poly')) floorY = res.floorY;
             if (res.hit) {
               state.x = res.x;
               state.z = res.z;

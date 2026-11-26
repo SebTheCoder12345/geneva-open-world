@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getGroundHeight, isWater } from './cityData.js';
 import { batchStaticGroup } from './staticBatcher.js';
 
@@ -143,9 +144,24 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
     const chairSeatMat = new THREE.MeshStandardMaterial({ color: 0x8c5a38, roughness: 0.78 });
     const umbrellaMat = new THREE.MeshStandardMaterial({ color: 0xf0eadc, roughness: 0.84, side: THREE.DoubleSide });
 
-    const tableTopInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.46, 0.46, 0.05, 14), tableTopMat, cafeSpots.length);
-    const tableLegInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.04, 0.24, 0.74, 8), ironMat, cafeSpots.length);
-    const chairInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.42, 0.46, 0.42), chairSeatMat, cafeSpots.length * 3);
+    const tableTopInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.48, 0.48, 0.045, 16), tableTopMat, cafeSpots.length);
+    const tableLegInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.035, 0.24, 0.74, 10), ironMat, cafeSpots.length);
+
+    // Sculpted European Parisian/Geneva Woven Bistro Chair (replaces blocky brown cubes!)
+    const chParts = [];
+    const chSeat = new THREE.CylinderGeometry(0.22, 0.21, 0.045, 12);
+    chSeat.translate(0, 0.45, 0);
+    const chBack = new THREE.BoxGeometry(0.36, 0.38, 0.04);
+    chBack.translate(0, 0.68, -0.19);
+    const chLegFL = new THREE.CylinderGeometry(0.016, 0.014, 0.45, 6); chLegFL.translate(-0.15, 0.225, 0.14);
+    const chLegFR = new THREE.CylinderGeometry(0.016, 0.014, 0.45, 6); chLegFR.translate(0.15, 0.225, 0.14);
+    const chLegBL = new THREE.CylinderGeometry(0.016, 0.014, 0.84, 6); chLegBL.translate(-0.16, 0.42, -0.17);
+    const chLegBR = new THREE.CylinderGeometry(0.016, 0.014, 0.84, 6); chLegBR.translate(0.16, 0.42, -0.17);
+    chParts.push(chSeat, chBack, chLegFL, chLegFR, chLegBL, chLegBR);
+    const chairGeo = mergeGeometries(chParts, false);
+    chParts.forEach((g) => g.dispose());
+
+    const chairInst = new THREE.InstancedMesh(chairGeo, chairSeatMat, cafeSpots.length * 3);
     const umbPoleInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.03, 0.03, 2.38, 6), ironMat, cafeSpots.length);
     const umbCanopyInst = new THREE.InstancedMesh(new THREE.ConeGeometry(1.42, 0.46, 8), umbrellaMat, cafeSpots.length);
 
@@ -156,7 +172,7 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
 
     let ci = 0;
     cafeSpots.forEach(([x, z], idx) => {
-      const y = getGroundHeight(x, z) + 0.16;
+      const y = getGroundHeight(x, z) + 0.26;
       dummy.position.set(x, y + 0.74, z);
       dummy.rotation.set(0, idx * 0.7, 0);
       dummy.scale.set(1, 1, 1);
@@ -182,13 +198,13 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
       dummy.updateMatrix();
       umbCanopyInst.setMatrixAt(idx, dummy.matrix);
 
-      // 3 woven bistro chairs tucked naturally around each marble table
+      // 3 sculpted bistro chairs tucked naturally around each marble table
       for (let k = 0; k < 3; k++) {
         const a = idx * 0.9 + (k / 3) * Math.PI * 2;
         const cx = x + Math.cos(a) * 0.74;
         const cz = z + Math.sin(a) * 0.74;
-        dummy.position.set(cx, y + 0.25, cz);
-        dummy.rotation.set(0, -a, 0);
+        dummy.position.set(cx, y, cz);
+        dummy.rotation.set(0, Math.atan2(-Math.cos(a), -Math.sin(a)), 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         chairInst.setMatrixAt(ci++, dummy.matrix);
@@ -221,46 +237,43 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
   // 2. WHITE STONE CUBE LUXURY BOUTIQUE PLANTERS + BOXWOOD TOPIARIES (MATCHING DIOR / CARTIER IN ref_03!)
   // =================================================================================================
   const rawPlanters = [
-    // Rue du Rhône luxury boutiques (Dior, Cartier, Hermès, Patek Philippe, Louis Vuitton)
-    [-118.0, 224.0], [-108.0, 222.5], [-98.0, 221.0], [-88.0, 223.5], [-76.0, 226.0],
-    [-64.0, 228.5], [-52.0, 231.0], [-40.0, 233.5], [-28.0, 236.5], [-16.0, 239.5],
-    // Quai du Général-Guisan boutique sidewalk
-    [12.0, 178.0], [26.0, 186.0], [42.0, 195.0], [58.0, 204.0], [76.0, 214.0],
-    // Place du Molard luxury shopfront flanks
-    [-162.5, 242.0], [-163.5, 246.5], [-144.5, 244.0], [-143.8, 248.5],
+    // Place du Molard luxury shopfront flanks (tucked strictly against facade edges, NEVER blocking Rue du Rhône walking lanes!)
+    [-162.8, 242.5], [-163.8, 247.0], [-144.2, 244.0], [-143.5, 248.5],
+    // Quai du Général-Guisan wide boutique frontage
+    [26.0, 186.0], [42.0, 195.0], [58.0, 204.0], [76.0, 214.0],
   ];
-  const planterSpots = rawPlanters.filter(([x, z]) => !nearVehRoad(x, z, 0.55) && !isWater(x, z));
+  const planterSpots = rawPlanters.filter(([x, z]) => !nearVehRoad(x, z, 1.45) && !isWater(x, z));
   if (planterSpots.length > 0) {
-    const potMat = new THREE.MeshStandardMaterial({ color: 0xe8e5dd, roughness: 0.76 });
-    const topiaryMat = new THREE.MeshStandardMaterial({ color: 0x265428, roughness: 0.88 });
+    const potMat = new THREE.MeshStandardMaterial({ color: 0xe6e2d8, roughness: 0.74 });
+    const topiaryMat = new THREE.MeshStandardMaterial({ color: 0x2a582c, roughness: 0.88 });
     const stemMat = new THREE.MeshStandardMaterial({ color: 0x4b3b2c, roughness: 0.90 });
 
-    const potInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.64, 0.66, 0.64), potMat, planterSpots.length);
-    const stemInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.04, 0.055, 0.52, 6), stemMat, planterSpots.length);
-    const ballInst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.42, 10, 8), topiaryMat, planterSpots.length);
+    const potInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.54, 0.58, 0.54), potMat, planterSpots.length);
+    const stemInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.032, 0.044, 0.44, 6), stemMat, planterSpots.length);
+    const ballInst = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.29, 2), topiaryMat, planterSpots.length);
     potInst.castShadow = true;
     potInst.receiveShadow = true;
     ballInst.castShadow = true;
 
     planterSpots.forEach(([x, z], idx) => {
-      const y = getGroundHeight(x, z) + 0.16;
-      dummy.position.set(x, y + 0.33, z);
+      const y = getGroundHeight(x, z) + 0.26;
+      dummy.position.set(x, y + 0.29, z);
       dummy.rotation.set(0, 0.42, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       potInst.setMatrixAt(idx, dummy.matrix);
 
-      dummy.position.set(x, y + 0.86, z);
+      dummy.position.set(x, y + 0.74, z);
       dummy.updateMatrix();
       stemInst.setMatrixAt(idx, dummy.matrix);
 
-      dummy.position.set(x, y + 1.24, z);
-      dummy.scale.set(1, 0.94, 1);
+      dummy.position.set(x, y + 1.06, z);
+      dummy.scale.set(1, 1.08, 1);
       dummy.updateMatrix();
       ballInst.setMatrixAt(idx, dummy.matrix);
 
       if (insertCollider) {
-        insertCollider({ kind: 'obb', x, z, yaw: 0.42, halfW: 0.36, halfL: 0.36, maxY: y + 1.5, walkableTop: true });
+        insertCollider({ kind: 'obb', x, z, yaw: 0.42, halfW: 0.30, halfL: 0.30, maxY: y + 1.35, walkableTop: true });
       }
     });
     lifeGroup.add(potInst, stemInst, ballInst);
@@ -428,7 +441,7 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
     if (busCoords.length > 0) {
       const bInst = new THREE.InstancedMesh(stencilGeo, busTaxiMat, busCoords.length);
       busCoords.forEach(([x, z, ang], idx) => {
-        dummy.position.set(x, getGroundHeight(x, z) + 0.305, z);
+        dummy.position.set(x, getGroundHeight(x, z) + 0.222, z);
         dummy.rotation.set(0, ang, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
@@ -439,7 +452,7 @@ export function buildGenevaStreetLife(worldGroup, realData, streetFeatures, swis
     if (arrowCoords.length > 0) {
       const aInst = new THREE.InstancedMesh(stencilGeo, arrowMat, arrowCoords.length);
       arrowCoords.forEach(([x, z, ang], idx) => {
-        dummy.position.set(x, getGroundHeight(x, z) + 0.305, z);
+        dummy.position.set(x, getGroundHeight(x, z) + 0.222, z);
         dummy.rotation.set(0, ang, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();

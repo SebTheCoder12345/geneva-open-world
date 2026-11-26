@@ -29,6 +29,8 @@ import { createRealisticWater } from './skyAndWater.js';
 import { createRoadTrafficNetwork } from './roadTraffic.js';
 import { buildGenevaStreetProps } from './streetProps.js';
 import { buildGenevaLandmarks } from './genevaLandmarks.js';
+import { buildBainsDesPaquis } from './bainsDesPaquis.js';
+import { buildGenevaPedestrianZones } from './genevaPedestrianZones.js';
 import { batchStaticGroup } from './staticBatcher.js';
 import { createHumanAnimator } from '../game/humanAnim.js';
 import { createStaticColliderGrid } from '../game/collisions.js';
@@ -126,7 +128,7 @@ function createRealisticTreeGeometries() {
   return { trunkGeo, canopyGeo };
 }
 
-export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgress = () => {}, streetFeatures = null, useSwiss3D = true) {
+export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgress = () => {}, streetFeatures = null, useSwiss3D = true, pedZonesData = null) {
   const worldGroup = new THREE.Group();
   scene.add(worldGroup);
   // Dedicated VFX container excluded from GTAOPass override prepass (zero black sprite boxes in sky!)
@@ -216,20 +218,47 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   // 2. REAL-TIME PLANAR REFLECTIVE LAC LÉMAN WATER
   const { waterMesh, waterUniforms } = createRealisticWater(scene);
 
-  // 3. CLEAN LAYERED 1:1 ROADS: Granite Paver Sidewalk Base (y+0.14) BELOW Pure Dark Asphalt Roadway (y+0.21..0.28)!
-  // Eliminates intersection curb overlaps & z-fighting across all 1,330 real Geneva streets!
-  onProgress(40, `Paving ${realData.roads.length} real 1:1 Geneva roads & granite sidewalks…`);
+  // 3. CLEAN LAYERED 1:1 ROADS: Pure Dark Asphalt Roadway (y+0.155..0.21) + RAISED Granite Sidewalks (y+0.25) strictly flanking carriageways!
+  // Eliminates upside-down sunken sidewalks, intersection curb overlaps & blotchy stains across all 1,330 real Geneva streets!
+  onProgress(40, `Paving ${realData.roads.length} real 1:1 Geneva roads & raised granite sidewalks…`);
   const asphaltBuf = { pos: [], norm: [], uv: [] };
   const sidewalkBuf = { pos: [], norm: [], uv: [] };
 
   const roadHeightByClass = {
-    primary: 0.29,
-    trunk: 0.29,
-    secondary: 0.26,
-    tertiary: 0.23,
-    residential: 0.21,
-    unclassified: 0.21,
+    primary: 0.21,
+    trunk: 0.21,
+    secondary: 0.19,
+    tertiary: 0.17,
+    residential: 0.155,
+    unclassified: 0.155,
   };
+
+  // Pre-index vehicular road segments so raised flanking sidewalks cleanly break at cross-street intersections!
+  const allVehSegsPre = [];
+  for (let ri = 0; ri < (realData.roads || []).length; ri++) {
+    const r = realData.roads[ri];
+    if (!r.p || r.p.length < 2) continue;
+    if (r.k === 'pedestrian' || r.k === 'living_street' || r.k === 'service' || r.k === 'footway') continue;
+    const hw = (r.w || 8.0) * 0.5;
+    for (let i = 0; i < r.p.length - 1; i++) {
+      allVehSegsPre.push([ri, r.p[i][0], r.p[i][1], r.p[i + 1][0], r.p[i + 1][1], hw]);
+    }
+  }
+  function inAnyOtherVehRoad(x, z, selfRi, pad = 0.25) {
+    for (let k = 0; k < allVehSegsPre.length; k++) {
+      const s = allVehSegsPre[k];
+      if (s[0] === selfRi) continue;
+      const m = s[5] + pad;
+      if (x < Math.min(s[1], s[3]) - m || x > Math.max(s[1], s[3]) + m) continue;
+      if (z < Math.min(s[2], s[4]) - m || z > Math.max(s[2], s[4]) + m) continue;
+      const vx = s[3] - s[1], vz = s[4] - s[2];
+      const l2 = vx * vx + vz * vz;
+      if (l2 < 0.1) continue;
+      const t = Math.max(0, Math.min(1, ((x - s[1]) * vx + (z - s[2]) * vz) / l2));
+      if (Math.hypot(x - (s[1] + t * vx), z - (s[2] + t * vz)) < m) return true;
+    }
+    return false;
+  }
 
   function pushRibbon(target, x1, z1, x2, z2, halfW, yLift, uvScaleLen, uvScaleW = 1, extendEnds = 0) {
     let dx = x2 - x1;
@@ -249,7 +278,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     }
     const segLen = Math.hypot(dx, dz);
 
-    const steps = Math.max(1, Math.ceil(segLen / 10));
+    const steps = Math.max(1, Math.ceil(segLen / 4.5));
     const px = (-dz / segLen) * halfW;
     const pz = (dx / segLen) * halfW;
     let distAcc = 0;
@@ -289,13 +318,14 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     return segLen;
   }
 
-  for (const r of realData.roads || []) {
+  for (let ri = 0; ri < (realData.roads || []).length; ri++) {
+    const r = realData.roads[ri];
     if (!r.p || r.p.length < 2) continue;
-    const isPed = r.k === 'pedestrian' || r.k === 'living_street' || r.k === 'service';
+    const isPed = r.k === 'pedestrian' || r.k === 'living_street' || r.k === 'service' || r.k === 'footway';
     const isPmbBridge = Boolean(r.br && r.n && /Mont-Blanc/.test(r.n));
     const roadHalfW = isPmbBridge ? 8.05 : (r.w || 8.0) * 0.5;
-    const swHalfW = r.br ? roadHalfW + 1.8 : isPed ? (r.w || 6.0) * 0.62 : roadHalfW + 3.85;
-    const roadLift = r.br ? 0.28 : (roadHeightByClass[r.k] || 0.22);
+    const swStripW = r.br ? 1.8 : r.k === 'primary' || r.k === 'trunk' ? 3.8 : 3.2;
+    const roadLift = r.br ? 0.26 : (roadHeightByClass[r.k] || 0.16);
 
     for (let i = 0; i < r.p.length - 1; i++) {
       const [x1, z1] = r.p[i];
@@ -304,13 +334,40 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
       const mz = (z1 + z2) * 0.5;
       // Never pave non-bridge paths across open Lac Léman water basins!
       if (!r.br && getRawWaterMask(mx, mz) && !isOnBridgeOrPier(mx, mz)) continue;
-      // Lower continuous granite paver sidewalk / pedestrian skirt (skip on Pont du Mont-Blanc which has dedicated arched granite walkways!)
-      if (!isPmbBridge) {
-        pushRibbon(sidewalkBuf, x1, z1, x2, z2, swHalfW, isPed ? 0.16 : 0.14, 4.5, swHalfW * 0.45);
-      }
-      // Clean pure asphalt carriageway layered cleanly above sidewalk skirt (0.35m tangent overlap eliminates segment seams!)
-      if (!isPed) {
+
+      if (isPed) {
+        if (!inAnyOtherVehRoad(mx, mz, -1, 0.2)) {
+          const pedHW = (r.w || 6.0) * 0.56;
+          pushRibbon(sidewalkBuf, x1, z1, x2, z2, pedHW, 0.25, 4.2, pedHW * 0.45, 0.2);
+        }
+      } else {
+        // Pure dark asphalt carriageway cleanly BELOW raised sidewalks
         pushRibbon(asphaltBuf, x1, z1, x2, z2, roadHalfW, roadLift, 14.0, 1, 0.35);
+
+        // Raised left & right granite sidewalks (y + 0.25m — 4..9cm ABOVE asphalt!), skipping cross-street carriageways!
+        if (!isPmbBridge) {
+          const dx = x2 - x1, dz = z2 - z1;
+          const segLen = Math.hypot(dx, dz);
+          if (segLen >= 0.8) {
+            const nx = -dz / segLen, nz = dx / segLen;
+            const subs = Math.max(1, Math.ceil(segLen / 6.0));
+            const offCenter = roadHalfW + swStripW * 0.5 + 0.08;
+            for (let s = 0; s < subs; s++) {
+              const t0 = s / subs, t1 = (s + 1) / subs;
+              const ax = x1 + dx * t0, az = z1 + dz * t0;
+              const bx = x1 + dx * t1, bz = z1 + dz * t1;
+              for (const side of [-1, 1]) {
+                const ox = nx * side * offCenter;
+                const oz = nz * side * offCenter;
+                const smx = (ax + bx) * 0.5 + ox;
+                const smz = (az + bz) * 0.5 + oz;
+                if (!r.br && getRawWaterMask(smx, smz)) continue;
+                if (inAnyOtherVehRoad(smx, smz, ri, 0.45)) continue;
+                pushRibbon(sidewalkBuf, ax + ox, az + oz, bx + ox, bz + oz, swStripW * 0.5, r.br ? 0.29 : 0.25, 4.2, swStripW * 0.28, 0.14);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -342,18 +399,18 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   const cobbleMat = new THREE.MeshStandardMaterial({
     map: photoBundle?.paverDiff || null,
     normalMap: photoBundle?.paverNor || null,
-    normalScale: new THREE.Vector2(0.95, 0.95),
+    normalScale: new THREE.Vector2(0.65, 0.65),
     roughnessMap: photoBundle?.paverRough || null,
-    color: new THREE.Color(0xdedad2), // authentic pale silver-beige Geneva granite promenade slabs (matches ref_03 & ref_06!)
-    roughness: 0.74,
-    metalness: 0.05,
-    envMapIntensity: 1.28,
+    color: new THREE.Color(0xc4c0b8), // harmonized Swiss Ticino silver-grey granite sidewalk tone (seamless with pedestrian plazas!)
+    roughness: 0.78,
+    metalness: 0.04,
+    envMapIntensity: 1.05,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1,
   });
-  // Inject crisp per-slab Swiss granite tone & roughness variation + subtle dark mortar seams!
+  // Harmonize sidewalk paving hue seamlessly with the elevated Ticino granite plazas (ZERO dark-brown vs pale-white seams!)
   cobbleMat.onBeforeCompile = (shader) => {
     shader.vertexShader =
       `varying vec3 vCobWorldPos;\n` +
@@ -366,16 +423,15 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
       shader.fragmentShader.replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        // Clean Swiss Ticino silver-beige granite slabs with subtle organic per-flagstone variation
+        // Harmonize sidewalk pavers seamlessly to Swiss Ticino silver-grey granite in Rues-Basses/Quais & warm porphyry in Vieille-Ville!
+        float isOldTownCob = smoothstep(335.0, 365.0, vCobWorldPos.z) * step(-360.0, vCobWorldPos.x) * step(vCobWorldPos.x, 165.0);
         float lumCob = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lumCob * 1.01, lumCob * 1.00, lumCob * 0.98), 0.52);
-        vec2 slabId = floor(vCobWorldPos.xz * 1.25);
+        vec3 ticinoCol = vec3(0.42, 0.41, 0.39) * (0.72 + lumCob * 0.85);
+        vec3 vieilleCol = mix(diffuseColor.rgb, vec3(lumCob * 1.03, lumCob * 1.00, lumCob * 0.96), 0.45);
+        diffuseColor.rgb = mix(ticinoCol, vieilleCol, isOldTownCob);
+        vec2 slabId = floor(vCobWorldPos.xz * 1.15);
         float slabHash = fract(sin(dot(slabId, vec2(127.1, 311.7))) * 43758.5453);
-        diffuseColor.rgb *= (0.93 + slabHash * 0.13);
-        float seamDark = 1.0 - smoothstep(0.06, 0.14, lumCob);
-        float mossPatch = smoothstep(0.58, 0.88, sin(vCobWorldPos.x * 0.42 + sin(vCobWorldPos.z * 0.37)) * 0.5 + 0.5);
-        vec3 mossCol = vec3(0.15, 0.17, 0.13);
-        diffuseColor.rgb = mix(diffuseColor.rgb, mossCol, seamDark * mossPatch * 0.28);`
+        diffuseColor.rgb *= (0.95 + slabHash * 0.10);`
       );
   };
   if (sidewalkBuf.pos.length > 0) {
@@ -1738,8 +1794,10 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     map: leafTex,
     alphaTest: 0.40,
     side: THREE.DoubleSide,
-    roughness: 0.82,
+    roughness: 0.80,
     metalness: 0.02,
+    emissive: new THREE.Color(0x0d1b0a),
+    emissiveIntensity: 0.32, // subtle sunlit chlorophyll translucency (eliminates pitch-black tree undersides!)
     vertexColors: true,
   });
 
@@ -1771,20 +1829,23 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   canopies.instanceColor.needsUpdate = true;
   worldGroup.add(trunks, canopies);
 
-  // Flush Cast-Iron Square Tree Grates ('Grilles d'arbres de Genève') around paved street/quay plane trees!
+  // Flush Silver-Granite Bordered Cast-Iron Tree Pits ('Fosses d'arbres de Genève') ONLY for paved street/quay trees (not grass park trees!)
   const treeGrateCan = document.createElement('canvas');
   treeGrateCan.width = 128;
   treeGrateCan.height = 128;
   const tgCtx = treeGrateCan.getContext('2d');
-  tgCtx.fillStyle = '#24292c';
+  // Pale Ticino granite outer curb border framing the cast-iron tree grate!
+  tgCtx.fillStyle = '#c9c4ba';
   tgCtx.fillRect(0, 0, 128, 128);
-  tgCtx.strokeStyle = '#3f474c';
-  tgCtx.lineWidth = 5;
-  tgCtx.strokeRect(4, 4, 120, 120);
-  // Radial & concentric European iron tree-pit slots
-  tgCtx.strokeStyle = '#141719';
-  tgCtx.lineWidth = 4;
-  for (let r = 24; r <= 54; r += 12) {
+  tgCtx.fillStyle = '#565c62';
+  tgCtx.fillRect(14, 14, 100, 100);
+  tgCtx.strokeStyle = '#7c8288';
+  tgCtx.lineWidth = 3;
+  tgCtx.strokeRect(16, 16, 96, 96);
+  // Subtle recessed European radial iron drainage grille
+  tgCtx.strokeStyle = '#31363b';
+  tgCtx.lineWidth = 3;
+  for (let r = 20; r <= 44; r += 11) {
     tgCtx.beginPath();
     tgCtx.arc(64, 64, r, 0, Math.PI * 2);
     tgCtx.stroke();
@@ -1792,27 +1853,33 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   for (let a = 0; a < 8; a++) {
     const ang = (a / 8) * Math.PI * 2;
     tgCtx.beginPath();
-    tgCtx.moveTo(64 + Math.cos(ang) * 20, 64 + Math.sin(ang) * 20);
-    tgCtx.lineTo(64 + Math.cos(ang) * 58, 64 + Math.sin(ang) * 58);
+    tgCtx.moveTo(64 + Math.cos(ang) * 16, 64 + Math.sin(ang) * 16);
+    tgCtx.lineTo(64 + Math.cos(ang) * 48, 64 + Math.sin(ang) * 48);
     tgCtx.stroke();
   }
   const treeGrateTex = new THREE.CanvasTexture(treeGrateCan);
   treeGrateTex.colorSpace = THREE.SRGBColorSpace;
   const treeGrateMat = new THREE.MeshStandardMaterial({
     map: treeGrateTex,
-    roughness: 0.62,
-    metalness: 0.68,
+    roughness: 0.72,
+    metalness: 0.35,
     polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
   });
-  const centralTreeGrates = validTrees.filter(([tx, tz]) => Math.hypot(tx - 20, tz - 170) < 340);
+  // Exclude Jardin Anglais & Parc des Bastions interior lawn trees so only paved sidewalk/promenade trees get granite tree pits!
+  const centralTreeGrates = validTrees.filter(([tx, tz]) => {
+    if (Math.hypot(tx - 20, tz - 170) > 340) return false;
+    const inJardinLawn = tx > 24 && tx < 225 && tz > 120 && tz < 230 && tz < 190 + tx * 0.24;
+    if (inJardinLawn) return false;
+    return true;
+  });
   if (centralTreeGrates.length > 0) {
-    const tgGeo = new THREE.BoxGeometry(1.72, 0.05, 1.72);
+    const tgGeo = new THREE.PlaneGeometry(1.65, 1.65).rotateX(-Math.PI / 2);
     const tgMesh = new THREE.InstancedMesh(tgGeo, treeGrateMat, centralTreeGrates.length);
     tgMesh.receiveShadow = true;
     centralTreeGrates.forEach(([tx, tz], idx) => {
-      dummy.position.set(tx, getGroundHeight(tx, tz) + 0.16, tz);
+      dummy.position.set(tx, getGroundHeight(tx, tz) + 0.264, tz);
       dummy.scale.set(1, 1, 1);
       dummy.rotation.set(0, 0.45, 0);
       dummy.updateMatrix();
@@ -1963,7 +2030,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   });
   worldGroup.add(lampPosts, lampHoods, lampBulbs, banners);
 
-  // Instanced Authentic Swiss Yellow Pedestrian Crosswalks driven by real OSM GPS crossings + core Quai crossings (1 draw call!)
+  // Instanced Authentic Swiss Yellow Pedestrian Crosswalks strictly clamped INSIDE road carriageways (ZERO stripes clipping sidewalks or doorways!)
   const cwMat = new THREE.MeshStandardMaterial({
     color: 0xf4c41c,
     roughness: 0.78,
@@ -1972,59 +2039,73 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     polygonOffsetUnits: -5,
   });
   const crosswalkSpots = [
-    [-20, 146, -0.52],
-    [22, 165, -0.52],
-    [-162, -98, -0.55],
-    [-75, 224, 0.25],
+    [-20, 146, -0.52, 11.5],
+    [22, 165, -0.52, 11.5],
+    [-162, -98, -0.55, 11.5],
+    [-75, 224, 0.25, 10.0],
   ];
   if (streetFeatures?.crossings?.length) {
     const roadSegList = [];
     for (const r of realData.roads || []) {
-      if (!r.p || r.p.length < 2 || r.k === 'pedestrian' || r.k === 'service') continue;
+      if (!r.p || r.p.length < 2 || r.k === 'pedestrian' || r.k === 'service' || r.k === 'footway' || r.k === 'living_street') continue;
       for (let i = 0; i < r.p.length - 1; i++) {
-        roadSegList.push([r.p[i][0], r.p[i][1], r.p[i + 1][0], r.p[i + 1][1]]);
+        roadSegList.push([r.p[i][0], r.p[i][1], r.p[i + 1][0], r.p[i + 1][1], r.w || 8.0]);
       }
     }
     for (const [cx, cz] of streetFeatures.crossings) {
       if (crosswalkSpots.length >= 44) break;
       if (Math.hypot(cx - 10, cz - 170) > 360 || isWater(cx, cz)) continue;
       if (crosswalkSpots.some(([ox, oz]) => Math.hypot(ox - cx, oz - cz) < 18)) continue;
-      // Align crosswalk cleanly perpendicular to the nearest real Geneva road segment
-      let bestD = 12;
+      // Snap crosswalk center & perpendicular rotation cleanly onto the exact centerline of its host road!
+      let bestD = 7.5;
       let bestRot = -0.52;
+      let bestW = 8.0;
+      let snapX = cx, snapZ = cz;
       for (let k = 0; k < roadSegList.length; k++) {
-        const [x1, z1, x2, z2] = roadSegList[k];
+        const [x1, z1, x2, z2, rw] = roadSegList[k];
         const vx = x2 - x1, vz = z2 - z1;
         const l2 = vx * vx + vz * vz;
         if (l2 < 1) continue;
-        const t = Math.max(0, Math.min(1, ((cx - x1) * vx + (cz - z1) * vz) / l2));
-        const d = Math.hypot(cx - (x1 + t * vx), cz - (z1 + t * vz));
+        const t = Math.max(0.08, Math.min(0.92, ((cx - x1) * vx + (cz - z1) * vz) / l2));
+        const px = x1 + t * vx, pz = z1 + t * vz;
+        const d = Math.hypot(cx - px, cz - pz);
         if (d < bestD) {
           bestD = d;
           bestRot = Math.atan2(vx, vz) + Math.PI * 0.5;
+          bestW = rw;
+          snapX = px;
+          snapZ = pz;
         }
       }
-      if (bestD < 9) crosswalkSpots.push([cx, cz, bestRot]);
+      if (bestD < 6.5) crosswalkSpots.push([snapX, snapZ, bestRot, bestW]);
     }
   }
-  const cwGeo = new THREE.PlaneGeometry(0.55, 3.2).rotateX(-Math.PI / 2);
-  const cwInst = new THREE.InstancedMesh(cwGeo, cwMat, crosswalkSpots.length * 9);
-  const cwDummy = new THREE.Object3D();
-  let cwIdx = 0;
-  for (const [cxw, czw, rot] of crosswalkSpots) {
+  const cwStripes = [];
+  for (const [cxw, czw, rot, rw] of crosswalkSpots) {
     const cosR = Math.cos(rot), sinR = Math.sin(rot);
-    for (let s = -4; s <= 4; s++) {
-      const off = s * 1.1;
+    const halfSpan = Math.max(1.8, (rw || 8.0) * 0.5 - 0.75);
+    const halfCount = Math.min(4, Math.max(1, Math.floor(halfSpan / 1.05)));
+    for (let s = -halfCount; s <= halfCount; s++) {
+      const off = s * 1.05;
       const sx = cxw + cosR * off;
       const sz = czw - sinR * off;
-      const sy = getGroundHeight(sx, sz) + 0.305;
+      // Guarantee every individual yellow stripe stays strictly inside asphalt (NEVER clipping sidewalks/doorways!)
+      if (!isInsideRoadBg(sx, sz, -0.35)) continue;
+      cwStripes.push([sx, getGroundHeight(sx, sz) + 0.222, sz, rot]);
+    }
+  }
+  if (cwStripes.length > 0) {
+    const cwGeo = new THREE.PlaneGeometry(0.52, 2.95).rotateX(-Math.PI / 2);
+    const cwInst = new THREE.InstancedMesh(cwGeo, cwMat, cwStripes.length);
+    const cwDummy = new THREE.Object3D();
+    cwStripes.forEach(([sx, sy, sz, rot], idx) => {
       cwDummy.position.set(sx, sy, sz);
       cwDummy.rotation.set(0, rot, 0);
       cwDummy.updateMatrix();
-      cwInst.setMatrixAt(cwIdx++, cwDummy.matrix);
-    }
+      cwInst.setMatrixAt(idx, cwDummy.matrix);
+    });
+    worldGroup.add(cwInst);
   }
-  worldGroup.add(cwInst);
 
   // 7B. CYCLING SWISS TRAFFIC LIGHTS (strictly placed on dry sidewalks — BATCHED into 4 draw calls!)
   const trafficLightGroup = new THREE.Group();
@@ -2122,8 +2203,22 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   });
   worldGroup.add(benchWoodInst, benchLegInst);
 
-  // 7C. LIVING GENEVA STREETSCAPE: Real GPS Bins, TPG Totems, Bike Racks, Cobble Tram Tracks, Span Lamps, Hydrants & Curbs!
+  // 7C. LIVING GENEVA STREETSCAPE: Real GPS Bins, 12 TPG Bus Shelters & Totems, Bike Racks, Cobble Tram Tracks, Span Lamps, Hydrants & Curbs!
   const streetPropsGroup = buildGenevaStreetProps(worldGroup, realData, insertCollider, photoBundle, streetFeatures, registerInteractable);
+
+  // 7C-2. LES BAINS DES PÂQUIS — Vibrant Summer Lakeside Beach Club, Sunbathers, Swimmers, Buvette Terrace & 10m Diving Tower!
+  const bainsDesPaquis = buildBainsDesPaquis(worldGroup, insertCollider, registerInteractable);
+
+  // 7D. 1:1 REAL GENEVA PEDESTRIAN WALKING ZONES (101 Plazas, 1,715 Footways, 185 Stone Stairs, 102 Park Lawns, Rues-Basses Globe Lamps & SIG Fountains!)
+  const pedZones = buildGenevaPedestrianZones(
+    worldGroup,
+    realData,
+    pedZonesData,
+    streetFeatures,
+    photoBundle,
+    insertCollider,
+    registerInteractable
+  );
 
   // 8. TRUE 3D SCULPTED MULTI-BIOME ALPINE MOUNTAIN MASSIF (Mont Salève, Pre-Alps, Mont-Blanc & Jura!)
   // Real 3D sloping ridges + undistorted world-space rock strata + slope-aware glacier snow + Rayleigh sky haze!
@@ -2410,34 +2505,67 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
 
   const roadTraffic = createRoadTrafficNetwork(worldGroup, realData, insertCollider);
 
-  // 28 Truly Diverse Real Rigged Geneva Citizens (6 Distinct Blender Archetypes: Chic Woman w/ Long Hair & Handbag,
-  // Athleisure Woman w/ Ponytail & Headphones, Swiss Banker w/ Briefcase, Streetwear w/ Cap & Backpack,
-  // Lakefront Summer Tourist w/ Bucket Hat & Camera, Alpine Beanie & Quilted Puffer — ZERO Clones!)
+  // 64 Truly Diverse Real Rigged Geneva Citizens walking strictly along verified 1:1 OSM sidewalks,
+  // pedestrian plazas, park promenades & Pont du Mont-Blanc walkways (ZERO walking in vehicle asphalt lanes!)
   const pedestriansGroup = new THREE.Group();
   pedestriansGroup.name = 'Geneva_Pedestrians';
   worldGroup.add(pedestriansGroup);
   const pedestrians = [];
-  const pedCorridors = [
-    [12, 146, 225, 226],     // Jardin Anglais lakeside promenade (directly visible from spawn!)
-    [-16, 158, 175, 248],    // Quai du Général-Guisan boutique sidewalk (directly visible on right from spawn!)
-    [-4, 142, 72, 178],      // Close foreground Jardin Anglais / Quai crossing strollers!
-    [pmbX1 + perpX * 9.5, pmbZ1 + perpZ * 9.5, pmbX2 + perpX * 9.5, pmbZ2 + perpZ * 9.5], // Pont du Mont-Blanc
-    [-148, -130, 45, -360],  // Quai du Mont-Blanc Rive Droite
-    [-118, 152, -32, 156],   // Genève-Molard waterfront promenade
-  ];
-  for (let i = 0; i < 28; i++) {
+
+  // Build cumulative arc-length polyline records from verified road-free 1:1 Geneva pedestrian zones!
+  const rawPaths =
+    pedZones?.pedestrianWalkPaths?.length > 0
+      ? pedZones.pedestrianWalkPaths
+      : [
+          [[14, 144], [52, 154], [92, 168], [134, 188], [182, 206]],
+          [[-156, 240], [-155, 256], [-154, 272], [-153, 288]],
+          [[-22.2, 113.2], [-94.0, 1.0], [-165.6, -110.7]],
+        ];
+
+  const pedPolylines = rawPaths.map((pts) => {
+    const cum = [0];
+    let total = 0;
+    for (let k = 0; k < pts.length - 1; k++) {
+      total += Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]);
+      cum.push(total);
+    }
+    return { pts, cum, total: Math.max(1, total) };
+  });
+
+  function samplePolyline(pl, dist) {
+    const d = Math.max(0, Math.min(pl.total, dist));
+    let seg = 0;
+    while (seg < pl.cum.length - 2 && pl.cum[seg + 1] < d) seg++;
+    const segLen = Math.max(0.001, pl.cum[seg + 1] - pl.cum[seg]);
+    const frac = (d - pl.cum[seg]) / segLen;
+    const [x1, z1] = pl.pts[seg];
+    const [x2, z2] = pl.pts[seg + 1];
+    return {
+      x: x1 + (x2 - x1) * frac,
+      z: z1 + (z2 - z1) * frac,
+      dx: x2 - x1,
+      dz: z2 - z1,
+    };
+  }
+
+  const PED_COUNT = 64;
+  for (let i = 0; i < PED_COUNT; i++) {
     const ped = new THREE.Group();
     pedestriansGroup.add(ped);
-    const [x1, z1, x2, z2] = pedCorridors[i % pedCorridors.length];
+    // First 26 pedestrians populate the prime walkable promenades (Jardin Anglais, Molard, Fusterie, Pont du Mont-Blanc, Bourg-de-Four),
+    // and the remaining 38 spread naturally across real OSM central Geneva footways & sidewalks!
+    const plIdx = i < 26 ? i % Math.min(10, pedPolylines.length) : i % pedPolylines.length;
+    const pl = pedPolylines[plIdx];
+    const walkSpeedMps = 1.25 + (i % 5) * 0.16; // authentic 1.25..1.89 m/s human stroll speed!
     pedestrians.push({
       mesh: ped,
       animator: null,
       shadowMeshes: [],
       _castShadow: true,
-      x1, z1, x2, z2,
-      t: ((i * 0.137 + 0.04) % 0.94),
+      pl,
+      dist: ((i * 0.237 + 0.06) % 0.94) * pl.total,
       dir: i % 2 === 0 ? 1 : -1,
-      speed: 0.0055 + (i % 5) * 0.0022,
+      walkSpeedMps,
       phase: i * 1.17,
       archetypeIdx: i % 6,
     });
@@ -2776,6 +2904,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     }
 
     genevaLandmarks.update(elapsed, nightFactor);
+    if (bainsDesPaquis?.update) bainsDesPaquis.update(elapsed, nightFactor);
 
     for (const sb of sailboats) {
       const a = elapsed * sb.speed + sb.phase;
@@ -2788,27 +2917,27 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
 
 
 
-    // Diverse rigged human pedestrians driven by exact Model-Space Walking Solver with distance + shadow culling!
+    // 64 Diverse rigged human pedestrians strolling strictly along 1:1 Geneva sidewalks & pedestrian plazas!
     for (let i = 0; i < pedestrians.length; i++) {
       const p = pedestrians[i];
-      p.t += dt * p.speed * p.dir;
-      if (p.t > 1) { p.t = 1; p.dir = -1; }
-      if (p.t < 0) { p.t = 0; p.dir = 1; }
-      const px = p.x1 + (p.x2 - p.x1) * p.t;
-      const pz = p.z1 + (p.z2 - p.z1) * p.t;
+      p.dist += dt * p.walkSpeedMps * p.dir;
+      if (p.dist >= p.pl.total) { p.dist = p.pl.total; p.dir = -1; }
+      if (p.dist <= 0) { p.dist = 0; p.dir = 1; }
+      const samp = samplePolyline(p.pl, p.dist);
+      const px = samp.x;
+      const pz = samp.z;
 
       const d2 = hasFocus ? (px - ax) * (px - ax) + (pz - az) * (pz - az) : 0;
       const vis = !hasFocus || d2 < 105 * 105;
       p.mesh.visible = vis;
       if (!vis) {
-        // Still keep collider position updated cleanly even when culled!
         p.mesh.position.x = px;
         p.mesh.position.z = pz;
         continue;
       }
 
-      p.mesh.position.set(px, getGroundHeight(px, pz) + 0.16, pz);
-      p.mesh.rotation.y = Math.atan2((p.x2 - p.x1) * p.dir, (p.z2 - p.z1) * p.dir);
+      p.mesh.position.set(px, getGroundHeight(px, pz) + 0.255, pz);
+      p.mesh.rotation.y = Math.atan2(samp.dx * p.dir, samp.dz * p.dir);
 
       const wantShadow = !hasFocus || d2 < 52 * 52;
       if (p._castShadow !== wantShadow && p.shadowMeshes.length > 0) {
@@ -2816,11 +2945,10 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
         for (let k = 0; k < p.shadowMeshes.length; k++) p.shadowMeshes[k].castShadow = wantShadow;
       }
 
-      // Full-rate skinning within 52m; half-rate (30Hz) beyond 52m where gait steps are sub-pixel!
       if (p.animator && (wantShadow || ((_worldFrame + i) & 1) === 0)) {
         p.animator.applyPose({
           gaitPhase: elapsed * 6.4 + p.phase,
-          speedNorm: 0.45,
+          speedNorm: 0.46,
           sprintBlend: 0,
           airBlend: 0,
           turnLean: 0,
@@ -2881,6 +3009,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     for (const m of emissiveMaterials) m.emissiveIntensity = targetEmissive;
     if (swiss3DRef?.nightUniform) swiss3DRef.nightUniform.value = targetEmissive;
     if (identityRef?.updateNight) identityRef.updateNight(nightFactor);
+    if (pedZones?.updateNight) pedZones.updateNight(nightFactor);
     lampBulbMat.emissiveIntensity = 0.1 + nightGlow * 3.4;
 
     // Glossy GTA-style satin night road reflections (Reference 2!) even when not raining!
@@ -2924,6 +3053,35 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     if (waterMesh) waterMesh.userData.skipInReflection = microDetailGroups;
   }
 
+  // Exact 3D rooftop surface lookup (real swissBUILDINGS3D roof/terrace triangles + OSM fallback!)
+  function sampleRoofHeight(x, z, maxBelowY = Infinity, radius = 0.35) {
+    let bestY = null;
+    if (swiss3DRef?.sampleRoofSupport) {
+      bestY = swiss3DRef.sampleRoofSupport(x, z, radius, maxBelowY);
+    }
+    if (bestY === null) {
+      const near = queryColliders(x, z);
+      for (let i = 0; i < near.length; i++) {
+        const c = near[i];
+        if (c.kind !== 'poly' || c.walkableTop === false) continue;
+        if (x < c.minX || x > c.maxX || z < c.minZ || z > c.maxZ) continue;
+        const my = c.maxY ?? -999;
+        if (my <= maxBelowY && (bestY === null || my > bestY)) {
+          // Point-in-polygon fallback check
+          let inside = false;
+          const pts = c.pts;
+          for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) {
+            const xi = pts[a][0], zi = pts[a][1];
+            const xj = pts[b][0], zj = pts[b][1];
+            if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi) inside = !inside;
+          }
+          if (inside) bestY = my;
+        }
+      }
+    }
+    return bestY;
+  }
+
   return {
     worldGroup,
     upperMats,
@@ -2933,6 +3091,7 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     insertCollider,
     queryColliders,
     queryCollidersRect,
+    sampleRoofHeight,
     registerInteractable,
     findNearestInteractable,
     interactables,

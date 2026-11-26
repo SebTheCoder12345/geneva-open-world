@@ -599,11 +599,11 @@ export function buildGenevaIdentity(worldGroup, realData, realPlacesData, swiss3
     );
 
     const fg = new THREE.Group();
-    fg.position.set(snap.x, baseY + 4.35, snap.z);
+    fg.position.set(snap.x, baseY + 4.44, snap.z);
     fg.rotation.y = snap.yaw;
 
-    // Single-material backing box + UV-mapped atlas front face -> ALL 68 signs collapse into 2 draw calls total!
-    const backing = new THREE.Mesh(new THREE.BoxGeometry(signW, signH, 0.44), steelMat);
+    // Slim flush bronze-backed fascia box + UV-mapped atlas front face (ZERO floating struts or canopy collision!)
+    const backing = new THREE.Mesh(new THREE.BoxGeometry(signW, signH, 0.22), steelMat);
     const faceGeo = new THREE.PlaneGeometry(signW * 0.99, signH * 0.99);
     const u0 = (ox + 2) / fasciaAtlasCan.width;
     const u1 = (ox + F_CELL_W - 2) / fasciaAtlasCan.width;
@@ -611,21 +611,21 @@ export function buildGenevaIdentity(worldGroup, realData, realPlacesData, swiss3
     const v0 = 1.0 - (oy + F_CELL_H - 2) / fasciaAtlasCan.height;
     remapPlaneAtlasUV(faceGeo, u0, v0, u1, v1);
     const face = new THREE.Mesh(faceGeo, fasciaAtlasMat);
-    face.position.z = 0.224;
+    face.position.z = 0.114;
     fg.add(backing, face);
 
-    // Tailored Swiss boutique fabric awning flush against the building facade (batched cleanly via shared material palette!)
+    // Tailored Swiss boutique fabric awning neatly mounted BELOW the fascia sign (zero clipping!)
     const awColorHex = theme.awning || 0x1c2832;
     let awMat = awningMatCache.get(awColorHex);
     if (!awMat) {
       awMat = new THREE.MeshStandardMaterial({ color: awColorHex, roughness: 0.88, side: THREE.DoubleSide });
       awningMatCache.set(awColorHex, awMat);
     }
-    const awTop = new THREE.Mesh(new THREE.BoxGeometry(signW * 0.96, 0.06, 1.05), awMat);
-    awTop.position.set(0, -0.68, 0.48);
+    const awTop = new THREE.Mesh(new THREE.BoxGeometry(signW * 0.94, 0.05, 0.96), awMat);
+    awTop.position.set(0, -0.62, 0.44);
     awTop.rotation.x = 0.34;
-    const awValance = new THREE.Mesh(new THREE.BoxGeometry(signW * 0.96, 0.22, 0.05), awMat);
-    awValance.position.set(0, -0.96, 0.96);
+    const awValance = new THREE.Mesh(new THREE.BoxGeometry(signW * 0.94, 0.20, 0.04), awMat);
+    awValance.position.set(0, -0.88, 0.88);
     fg.add(awTop, awValance);
 
     streetSignGroup.add(fg);

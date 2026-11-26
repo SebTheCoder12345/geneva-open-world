@@ -1073,7 +1073,8 @@ export function createVehicles(scene) {
     targetPos = null,
     trafficColliders = [],
     queryCollidersRect = null,
-    isRaining = false
+    isRaining = false,
+    sampleRoofHeight = null
   ) {
     carHeadlight.intensity = 0;
     let isDrifting = false;
@@ -1379,7 +1380,29 @@ export function createVehicles(scene) {
           Math.cos(elapsed * 1.7) * 0.03
         );
       } else if (v.type === 'heli') {
-        let heliFloorY = getGroundHeight(v.x, v.z);
+        // Compute real 3D Geneva rooftop landing pad height across helicopter center + 4 landing skid corners!
+        const sampleHeliFloor = (hx, hz, hy, hYaw) => {
+          let fl = getGroundHeight(hx, hz);
+          if (sampleRoofHeight) {
+            const cosH = Math.cos(hYaw);
+            const sinH = Math.sin(hYaw);
+            const maxRef = hy + 2.2;
+            const pts = [
+              [0, 0],
+              [1.25, 1.8], [-1.25, 1.8],
+              [1.25, -1.8], [-1.25, -1.8],
+            ];
+            for (let k = 0; k < pts.length; k++) {
+              const sx = hx + cosH * pts[k][0] + sinH * pts[k][1];
+              const sz = hz - sinH * pts[k][0] + cosH * pts[k][1];
+              const ry = sampleRoofHeight(sx, sz, maxRef, 0.45);
+              if (ry !== null && ry > fl) fl = ry;
+            }
+          }
+          return fl;
+        };
+
+        let heliFloorY = sampleHeliFloor(v.x, v.z, v.y, v.yaw);
         if (controlled) {
           v.rotorSpeed = Math.min(30, v.rotorSpeed + 18 * dt);
           const lift = (keys.Space ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight ? 1 : 0);
@@ -1407,14 +1430,22 @@ export function createVehicles(scene) {
             const cl = clampToWorld(v.x + v.vx * hsdt, v.z + v.vz * hsdt);
             v.x = cl.x;
             v.z = cl.z;
+            const prevHy = v.y;
             v.y = Math.min(280, v.y + v.vy * hsdt);
 
-            // Solid 3D building wall collision + Geneva rooftop landing support!
+            // Real 3D swissBUILDINGS3D rooftop landing pad height directly beneath helicopter skids!
+            heliFloorY = sampleHeliFloor(v.x, v.z, Math.max(prevHy, v.y), v.yaw);
+            const onRoofZone = heliFloorY > getGroundHeight(v.x, v.z) + 2.0 && prevHy >= heliFloorY - 1.2;
+
+            // Solid 3D building wall collision (never pushes skids off while landing on top of a real 3D roof!)
             const nearH = queryRectFn(v.x - 6, v.x + 6, v.z - 6, v.z + 6);
             for (let i = 0; i < nearH.length; i++) {
               const col = nearH[i];
               const maxY = col.maxY ?? 999;
-              if (v.y >= maxY - 1.1 && v.y <= maxY + 0.6 && col.walkableTop !== false) {
+              if (onRoofZone && (col.kind === 'poly' || col.isWall) && maxY <= heliFloorY + 3.2) {
+                continue;
+              }
+              if (v.y >= maxY - 1.2 && v.y <= maxY + 0.8 && col.walkableTop !== false) {
                 const resTop = resolveOBBAgainstCollider(v.x, maxY - 1.5, v.z, v.yaw, 1.6, 3.6, col, _colRes);
                 if (resTop.hit && maxY > heliFloorY) heliFloorY = maxY;
                 continue;
@@ -1441,18 +1472,23 @@ export function createVehicles(scene) {
             if (v.y < heliFloorY) {
               v.y = heliFloorY;
               if (v.vy < 0) v.vy = 0;
+              // Skid friction damps horizontal drift smoothly on rooftop touchdown!
+              v.vx *= Math.pow(0.08, hsdt);
+              v.vz *= Math.pow(0.08, hsdt);
             }
           }
 
-          v.pitch += (fwd * 0.22 - v.pitch) * Math.min(1, dt * 6);
-          v.roll += (-strafe * 0.24 - v.roll) * Math.min(1, dt * 6);
+          const landedNow = v.y <= heliFloorY + 0.14;
+          v.pitch += ((landedNow ? 0 : fwd * 0.22) - v.pitch) * Math.min(1, dt * 6);
+          v.roll += ((landedNow ? 0 : -strafe * 0.24) - v.roll) * Math.min(1, dt * 6);
 
-          // Rotor downwash spray when hovering low!
+          // Rotor downwash spray when hovering low over ground OR rooftop!
           if (v.y - heliFloorY < 16 && v.rotorSpeed > 14) {
             const ang = Math.random() * Math.PI * 2;
             spawnSmoke(v.x + Math.cos(ang) * 4, heliFloorY + 0.3, v.z + Math.sin(ang) * 4, Math.cos(ang) * 6, 0.8, Math.sin(ang) * 6);
           }
         } else {
+          // Parked / exited helicopter stays rock-solid on top of ANY Geneva rooftop!
           v.rotorSpeed = Math.max(0.5, v.rotorSpeed - 6 * dt);
           v.vx *= Math.pow(0.1, dt);
           v.vz *= Math.pow(0.1, dt);
@@ -1460,6 +1496,7 @@ export function createVehicles(scene) {
             v.vy -= 9.8 * dt;
             v.y = Math.max(heliFloorY, v.y + v.vy * dt);
           } else {
+            v.y = heliFloorY;
             v.vy = 0;
           }
           v.pitch *= Math.pow(0.05, dt);

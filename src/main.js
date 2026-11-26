@@ -134,14 +134,14 @@ for (let i = 0; i < 6; i++) {
 const nightCityBounce = new THREE.PointLight(0xffcf94, 0, 28, 1.35);
 scene.add(nightCityBounce);
 
-// Realistic High-Contrast Sun + Cool Alpine Sky Fill (matches crisp hard shadows of real Quai du Général-Guisan photo!)
-const hemiLight = new THREE.HemisphereLight(0x6ca8e8, 0x3b352c, 0.30);
+// Realistic High-Contrast Sun + Cool Alpine Sky Fill (balanced bounce prevents black tree shadows & suit shadow acne!)
+const hemiLight = new THREE.HemisphereLight(0x7cb4ee, 0x524c42, 0.44);
 scene.add(hemiLight);
 
-const sunLight = new THREE.DirectionalLight(0xffedd0, 3.45);
+const sunLight = new THREE.DirectionalLight(0xffedd0, 3.35);
 sunLight.position.set(180, 110, -130);
 sunLight.castShadow = true;
-// Texel-snapped 2048x2048 tight 54m PCFSoft shadow frustum: 4x faster than 4096x4096 with crisp shimmer-free shadows!
+// Texel-snapped 2048x2048 tight 54m PCFSoft shadow frustum with clean acne-free normal bias!
 sunLight.shadow.mapSize.set(2048, 2048);
 sunLight.shadow.camera.near = 12;
 sunLight.shadow.camera.far = 460;
@@ -150,8 +150,8 @@ sunLight.shadow.camera.left = -shadowRange;
 sunLight.shadow.camera.right = shadowRange;
 sunLight.shadow.camera.top = shadowRange;
 sunLight.shadow.camera.bottom = -shadowRange;
-sunLight.shadow.bias = -0.00028;
-sunLight.shadow.normalBias = 0.028;
+sunLight.shadow.bias = -0.00058;
+sunLight.shadow.normalBias = 0.048;
 scene.add(sunLight);
 scene.add(sunLight.target);
 
@@ -382,6 +382,57 @@ const hud = createHudAndMenus({
           settings.camMode = isCab ? 1 : 0;
         }
       }
+    } else if (camPreset === 'bains') {
+      // Les Bains des Pâquis sunlit summer deck looking across sunbathers, Buvette parasols, diving tower & Lac Léman swimmers!
+      player.state.x = 438.0;
+      player.state.z = -506.0;
+      player.state.y = getGroundHeight(438.0, -506.0) + 0.255;
+      player.state.yaw = 1.15;
+      camPitch = 0.14;
+    } else if (camPreset === 'bains_lake') {
+      // Panoramic view of Bains des Pâquis swimming bay, floating pontoon raft, diving tower & sunbathers!
+      player.state.x = 456.0;
+      player.state.z = -504.0;
+      player.state.y = getGroundHeight(456.0, -504.0) + 0.255;
+      player.state.yaw = 0.22;
+      camPitch = 0.14;
+    } else if (camPreset === 'busstop') {
+      // Authentic Geneva TPG Bus Stop Shelter, live LED totem, ticket automaton & yellow BUS bay at Jardin Anglais!
+      player.state.x = 58.0;
+      player.state.z = 183.0;
+      player.state.y = getGroundHeight(58.0, 183.0) + 0.255;
+      player.state.yaw = -0.35;
+      camPitch = 0.08;
+    } else if (camPreset === 'swatch') {
+      // Place du Molard granite pedestrian plaza right in front of SWATCH (verifies feet stand 100% flush on granite slabs!)
+      player.state.x = -152.0;
+      player.state.z = 262.0;
+      player.state.y = getGroundHeight(-152.0, 262.0) + 0.255;
+      player.state.yaw = 0.15;
+      camPitch = 0.12;
+    } else if (camPreset === 'roof_heli') {
+      // Helicopter landed cleanly on top of the Quai du Général-Guisan landmark rooftop with player standing right beside it!
+      const rx = 74.0;
+      const rz = 266.0;
+      const roofY = world?.sampleRoofHeight ? (world.sampleRoofHeight(rx, rz, Infinity, 1.5) ?? getGroundHeight(rx, rz) + 22) : getGroundHeight(rx, rz) + 22;
+      const heli = vehicleMgr.vehicles.find((v) => v.type === 'heli');
+      if (heli) {
+        heli.x = rx;
+        heli.z = rz;
+        heli.y = roofY;
+        heli.yaw = -0.35;
+        heli.mesh.position.set(heli.x, heli.y, heli.z);
+        heli.mesh.rotation.set(0, heli.yaw, 0);
+      }
+      const px = rx - 4.4;
+      const pz = rz + 1.4;
+      const pRoofY = world?.sampleRoofHeight ? (world.sampleRoofHeight(px, pz, roofY + 3.0, 0.5) ?? roofY) : roofY;
+      player.state.x = px;
+      player.state.z = pz;
+      player.state.y = pRoofY;
+      player.state.grounded = true;
+      player.state.yaw = 1.2;
+      camPitch = 0.14;
     } else if (camPreset === 'drive_test') {
       const car = vehicleMgr.vehicles.find((v) => v.id === 'coupe_red');
       if (car) {
@@ -398,7 +449,7 @@ const hud = createHudAndMenus({
       if (Number.isFinite(px) && Number.isFinite(pz)) {
         player.state.x = px;
         player.state.z = pz;
-        player.state.y = getGroundHeight(px, pz) + 0.16;
+        player.state.y = getGroundHeight(px, pz) + 0.255;
         if (params.get('yaw') !== null) player.state.yaw = parseFloat(params.get('yaw')) || 0;
         if (params.get('pitch') !== null) camPitch = parseFloat(params.get('pitch')) || 0;
       }
@@ -428,6 +479,19 @@ const hud = createHudAndMenus({
     started = true;
     paused = false;
     hud.showSubtitle(MISSIONS[missionIdx].subtitle, 5200);
+    // Immediately render minimap on first PLAY frame so it is never blank!
+    if (mapUI && world && vehicleMgr) {
+      mapUI.drawMinimap({
+        playerPos: getActivePos(),
+        playerYaw: camYaw,
+        vehicles: vehicleMgr.vehicles,
+        transit: world?.roadTraffic ? world.roadTraffic.tramEntities.concat(world.roadTraffic.busEntities) : null,
+        collectibles: world.collectibleMeshes,
+        missionTarget: MISSIONS[missionIdx].type !== 'freeroam' ? MISSIONS[missionIdx].target : null,
+        customWaypoint,
+        foundCount,
+      });
+    }
     safePointerLock();
   },
   onResume() {
@@ -536,10 +600,12 @@ async function bootRealGeneva() {
   hud.setLoadProgress(6, 'Loading 2K Day/Sunset/Night HDRIs & Poly Haven PBR textures…');
   const rgbeLoader = new RGBELoader();
 
-  const [realData, streetFeatures, realPlaces, orthoImg, topoImg, photoBundle, hdrDay, hdrSunset, hdrNight] = await Promise.all([
+  const [realData, streetFeatures, realPlaces, pedZonesData, buildingsMeta, orthoImg, topoImg, photoBundle, hdrDay, hdrSunset, hdrNight] = await Promise.all([
     fetch('/data/geneva-1to1.json').then((r) => r.json()),
     fetch('/data/geneva-street-features.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     fetch('/data/geneva-real-places.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('/data/geneva-pedestrian-zones.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('/data/geneva-buildings-meta.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     loadImage('/data/geneva-ortho.jpg'),
     loadImage('/data/geneva-map.jpg'),
     loadPhotoPBRBundle(),
@@ -576,7 +642,7 @@ async function bootRealGeneva() {
   const orthoTex = new THREE.Texture(orthoImg);
   orthoTex.needsUpdate = true;
 
-  world = buildGenevaWorld(scene, realData, orthoTex, photoBundle, (pct, msg) => hud.setLoadProgress(pct, msg), streetFeatures, true);
+  world = buildGenevaWorld(scene, realData, orthoTex, photoBundle, (pct, msg) => hud.setLoadProgress(pct, msg), streetFeatures, true, pedZonesData);
 
   // Stream official 1:1 Swiss Federal Government swisstopo swissBUILDINGS3D 3D meshes + mount real Geneva shopfronts & skyline watchmakers!
   let swiss3D = null;
@@ -589,7 +655,9 @@ async function bootRealGeneva() {
       photoBundle,
       orthoTex,
       (pct, msg) => hud.setLoadProgress(pct, msg),
-      world.insertCollider
+      world.insertCollider,
+      buildingsMeta,
+      realPlaces
     );
   } catch (e) {
     console.warn('swissBUILDINGS3D unavailable:', e);
@@ -748,7 +816,7 @@ window.addEventListener('keydown', (e) => {
     audio.playTramBell();
   } else if (e.code === 'KeyX' && !activeVehicle) {
     if (player?.isInteracting()) player.stopInteraction();
-    player.fireHook(camera, world.queryColliders);
+    player.fireHook(camera, world.queryColliders, world.sampleRoofHeight);
   } else if (e.code === 'KeyG' && !e.repeat) {
     if (!activeVehicle) {
       if (player?.isInteracting()) player.stopInteraction();
@@ -987,10 +1055,26 @@ function toggleVehicle() {
       exitZ = activeVehicle.z - Math.sin(activeVehicle.yaw) * exitOff;
     }
     const groundY = getGroundHeight(exitX, exitZ);
-    const bailingFromAir = activeVehicle.type === 'heli' && activeVehicle.y > groundY + 3.5;
+    const roofAtExit =
+      world?.sampleRoofHeight && activeVehicle.type === 'heli'
+        ? world.sampleRoofHeight(exitX, exitZ, activeVehicle.y + 2.5, 0.5)
+        : null;
+    const roofAtHeli =
+      world?.sampleRoofHeight && activeVehicle.type === 'heli'
+        ? world.sampleRoofHeight(activeVehicle.x, activeVehicle.z, activeVehicle.y + 2.5, 1.2)
+        : null;
+    const bestSurfaceY = Math.max(groundY + 0.255, roofAtExit ?? -999, roofAtHeli ?? -999);
+    const landedOnRoof = activeVehicle.type === 'heli' && bestSurfaceY > groundY + 2.0 && activeVehicle.y <= bestSurfaceY + 3.5;
+    const bailingFromAir = activeVehicle.type === 'heli' && activeVehicle.y > bestSurfaceY + 3.5;
+    // If helicopter landed near a roof edge where exitX stepped off into thin air, step safely onto the roof next to the skids!
+    if (landedOnRoof && roofAtExit === null && roofAtHeli !== null) {
+      exitX = activeVehicle.x + Math.cos(activeVehicle.yaw) * 1.9;
+      exitZ = activeVehicle.z - Math.sin(activeVehicle.yaw) * 1.9;
+    }
+    const finalFloorY = landedOnRoof ? Math.max(roofAtExit ?? roofAtHeli ?? activeVehicle.y, activeVehicle.y) : groundY + 0.255;
     player.state.x = exitX;
     player.state.z = exitZ;
-    player.state.y = bailingFromAir ? activeVehicle.y - 1.0 : Math.max(groundY + 0.16, groundY + 0.2);
+    player.state.y = bailingFromAir ? activeVehicle.y - 1.0 : finalFloorY;
     player.state.vy = bailingFromAir ? -2.0 : 0;
     player.state.grounded = !bailingFromAir;
     player.state.yaw = activeVehicle.yaw;
@@ -999,11 +1083,13 @@ function toggleVehicle() {
     if (settings.camMode === 1 && wasTransit) settings.camMode = 0;
     hud.showSubtitle(
       bailingFromAir
-        ? 'Bailed out! Press X to grapple mid-air or dive into Lac Léman!'
+        ? 'Bailed out! Press X to grapple mid-air or land on any Geneva rooftop!'
+        : landedOnRoof
+        ? 'Landed on a Geneva rooftop! Explore the skyline or press F to re-board.'
         : wasTransit
         ? `Alighted from ${prevLabel} · On foot.`
         : 'On foot.',
-      bailingFromAir ? 3600 : 1800
+      bailingFromAir || landedOnRoof ? 3600 : 1800
     );
   } else {
     const hit = findNearestVehicle(11.5);
@@ -1358,7 +1444,8 @@ function animate() {
       getActivePos(),
       trafficCols,
       world.queryCollidersRect,
-      settings.rain
+      settings.rain,
+      world.sampleRoofHeight
     );
     if (telemetry.crashIntensity > 2.4) {
       audio.playCarCrash(telemetry.crashIntensity, telemetry.crashIsMetal);
@@ -1383,7 +1470,7 @@ function animate() {
           }
         : keys;
       const effCamYaw = demoLocoMode ? camYaw + 0.82 : camYaw;
-      playerFx = player.update(dt, effKeys, effCamYaw, world.queryColliders, !activeVehicle, allDynCols) || playerFx;
+      playerFx = player.update(dt, effKeys, effCamYaw, world.queryColliders, !activeVehicle, allDynCols, world.sampleRoofHeight) || playerFx;
       if (playerFx.footstep) audio.playFootstep(playerFx.footstep.kind, playerFx.footstep.foot, playerFx.footstep.intensity);
       if (playerFx.scuff) audio.playShoeScuff();
       if (playerFx.jump) audio.playJumpPush();
