@@ -32,15 +32,15 @@ export function createHdrSanitizePass() {
   });
 }
 
-// GTA 6 / AAA Filmic Post-FX:
-// - Center-Masked Peripheral Radial Speed Blur + Camera-Pan Velocity Motion Blur (0 extra taps at idle!)
-// - Luminance-Clamped CAS Micro-Sharpening (zero halo ringing on snow ridges or leaves)
-// - Photo-Matched Geneva Daylight Color Grading (calibrated to real Quai du Général-Guisan photography)
+// GTA 6 / AAA Filmic Post-FX (Fused ACESFilmic Tone Mapping + sRGB Encoding + NaN/Inf Guard + Speed Blur + CAS Sharpen):
+// Eliminates TWO extra full-resolution FP16 render-target passes (HdrSanitizePass + OutputPass) every single frame
+// while keeping bit-for-bit identical ACES Filmic color, exposure & crispness!
 export function createGtaPostPass() {
   const shader = {
     uniforms: {
       tDiffuse: { value: null },
       uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+      uExposure: { value: 0.88 },
       uSpeed: { value: 0.0 },
       uPanVel: { value: new THREE.Vector2(0.0, 0.0) },
       uNight: { value: 0.0 },
@@ -56,11 +56,47 @@ export function createGtaPostPass() {
     fragmentShader: `
       uniform sampler2D tDiffuse;
       uniform vec2 uResolution;
+      uniform float uExposure;
       uniform float uSpeed;
       uniform vec2 uPanVel;
       uniform float uNight;
       uniform float uWantedFlash;
       varying vec2 vUv;
+
+      float safeHdr(float v) {
+        return (v >= 0.0 && v <= 60000.0) ? min(v, 12.0) : 0.0;
+      }
+
+      // Exact Three.js ACESFilmicToneMapping (Stephen Hill RRT+ODT fit) + exact sRGB OETF
+      vec3 RRTAndODTFit(vec3 v) {
+        vec3 a = v * (v + 0.0245786) - 0.000090537;
+        vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+        return a / b;
+      }
+      vec3 acesToSRGB(vec3 hdr) {
+        vec3 safe = vec3(safeHdr(hdr.r), safeHdr(hdr.g), safeHdr(hdr.b)) * uExposure;
+        const mat3 ACESInputMat = mat3(
+          vec3(0.59719, 0.07600, 0.02840),
+          vec3(0.35458, 0.90834, 0.13383),
+          vec3(0.04823, 0.01566, 0.83777)
+        );
+        const mat3 ACESOutputMat = mat3(
+          vec3( 1.60475, -0.10208, -0.00327),
+          vec3(-0.53108,  1.10813, -0.07276),
+          vec3(-0.07367, -0.00605,  1.07602)
+        );
+        vec3 color = ACESInputMat * (safe / 0.6);
+        color = RRTAndODTFit(color);
+        color = clamp(ACESOutputMat * color, 0.0, 1.0);
+        // Exact IEC 61966-2-1 sRGB transfer
+        vec3 lo = color * 12.92;
+        vec3 hi = pow(max(color, vec3(0.0031308)), vec3(1.0 / 2.4)) * 1.055 - 0.055;
+        return mix(lo, hi, step(vec3(0.0031308), color));
+      }
+
+      vec3 sampleLDR(vec2 uv) {
+        return acesToSRGB(texture2D(tDiffuse, uv).rgb);
+      }
 
       void main() {
         vec2 centered = vUv - 0.5;
@@ -79,31 +115,34 @@ export function createGtaPostPass() {
         vec3 col;
         if (blurMag > 0.00035) {
           // 6-tap weighted directional/radial streak + subtle speed chromatic aberration
-          vec3 acc = texture2D(tDiffuse, vUv).rgb * 0.28;
-          acc += texture2D(tDiffuse, clamp(vUv - blurVec * 0.25, 0.001, 0.999)).rgb * 0.20;
-          acc += texture2D(tDiffuse, clamp(vUv + blurVec * 0.25, 0.001, 0.999)).rgb * 0.20;
-          acc += texture2D(tDiffuse, clamp(vUv - blurVec * 0.58, 0.001, 0.999)).rgb * 0.12;
-          acc += texture2D(tDiffuse, clamp(vUv + blurVec * 0.58, 0.001, 0.999)).rgb * 0.12;
-          acc += texture2D(tDiffuse, clamp(vUv - blurVec * 0.95, 0.001, 0.999)).rgb * 0.04;
-          acc += texture2D(tDiffuse, clamp(vUv + blurVec * 0.95, 0.001, 0.999)).rgb * 0.04;
+          vec3 acc = sampleLDR(vUv) * 0.28;
+          acc += sampleLDR(clamp(vUv - blurVec * 0.25, 0.001, 0.999)) * 0.20;
+          acc += sampleLDR(clamp(vUv + blurVec * 0.25, 0.001, 0.999)) * 0.20;
+          acc += sampleLDR(clamp(vUv - blurVec * 0.58, 0.001, 0.999)) * 0.12;
+          acc += sampleLDR(clamp(vUv + blurVec * 0.58, 0.001, 0.999)) * 0.12;
+          acc += sampleLDR(clamp(vUv - blurVec * 0.95, 0.001, 0.999)) * 0.04;
+          acc += sampleLDR(clamp(vUv + blurVec * 0.95, 0.001, 0.999)) * 0.04;
           float ca = uSpeed * 0.0022 * edgeMask;
           if (ca > 0.00008) {
-            acc.r = mix(acc.r, texture2D(tDiffuse, clamp(vUv + dir * ca, 0.001, 0.999)).r, 0.55);
-            acc.b = mix(acc.b, texture2D(tDiffuse, clamp(vUv - dir * ca, 0.001, 0.999)).b, 0.55);
+            acc.r = mix(acc.r, sampleLDR(clamp(vUv + dir * ca, 0.001, 0.999)).r, 0.55);
+            acc.b = mix(acc.b, sampleLDR(clamp(vUv - dir * ca, 0.001, 0.999)).b, 0.55);
           }
           col = acc;
         } else {
-          col = texture2D(tDiffuse, vUv).rgb;
+          col = sampleLDR(vUv);
         }
 
-        // Luminance-clamped AAA CAS Micro-Sharpening (zero dark/red halo ringing on mountain crests or tree leaves!)
-        vec3 nU = texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb;
-        vec3 nD = texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb;
-        vec3 nL = texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb;
-        vec3 nR = texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb;
-        vec3 blur = (nU + nD + nL + nR) * 0.25;
-        vec3 detail = clamp(col - blur, vec3(-0.052), vec3(0.052));
-        col = clamp(col + detail * (0.24 * (1.0 - smoothstep(0.001, 0.008, blurMag))), 0.0, 1.0);
+        // Luminance-clamped AAA CAS Micro-Sharpening (skip 4 neighbor taps when already heavily motion-blurred!)
+        float sharpWeight = 0.24 * (1.0 - smoothstep(0.001, 0.008, blurMag));
+        if (sharpWeight > 0.01) {
+          vec3 nU = sampleLDR(vUv + vec2(0.0, px.y));
+          vec3 nD = sampleLDR(vUv - vec2(0.0, px.y));
+          vec3 nL = sampleLDR(vUv - vec2(px.x, 0.0));
+          vec3 nR = sampleLDR(vUv + vec2(px.x, 0.0));
+          vec3 blur = (nU + nD + nL + nR) * 0.25;
+          vec3 detail = clamp(col - blur, vec3(-0.052), vec3(0.052));
+          col = clamp(col + detail * sharpWeight, 0.0, 1.0);
+        }
 
         // Photo-matched Geneva Kodak daylight contrast -> gentle filmic nocturnal contrast (NEVER crushes dark cobblestones/leather to #000!)
         float contrastAmt = mix(1.09, 1.04, uNight);

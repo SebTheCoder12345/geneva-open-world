@@ -1036,24 +1036,36 @@ export function createVehicles(scene) {
     }
   }
 
+  // Zero-GC pooled vehicle collider & telemetry buffers!
+  const _vehColsOut = [];
+  const _vehColPool = [];
+  const _impactOut = { intensity: 0, isMetal: false };
+  const _telemetryOut = { isDrifting: false, isBoosting: false, policeDist: 9999, crashIntensity: 0, crashIsMetal: false, impactShake: 0 };
+  let _hadSmoke = true;
+  let _hadSparks = true;
+
   function getVehicleColliders(excludeVehicle = null) {
-    const out = [];
-    for (const v of vehicles) {
+    _vehColsOut.length = 0;
+    let ci = 0;
+    for (let i = 0; i < vehicles.length; i++) {
+      const v = vehicles[i];
       if (v === excludeVehicle) continue;
-      out.push({
-        kind: 'obb',
-        x: v.x,
-        z: v.z,
-        yaw: v.yaw,
-        halfW: v.halfW || (v.type === 'heli' ? 1.65 : v.type === 'boat' ? 1.65 : 1.08),
-        halfL: v.halfL || (v.type === 'heli' ? 4.2 : v.type === 'boat' ? 4.6 : 2.38),
-        maxY: v.y + (v.height || (v.type === 'heli' ? 3.2 : 1.55)),
-        walkableTop: true,
-        speed: Math.hypot(v.vx || 0, v.vz || 0),
-        isVehicle: true,
-      });
+      let slot = _vehColPool[ci];
+      if (!slot) {
+        slot = { kind: 'obb', x: 0, z: 0, yaw: 0, halfW: 1.08, halfL: 2.38, maxY: 1.55, walkableTop: true, speed: 0, isVehicle: true };
+        _vehColPool[ci] = slot;
+      }
+      ci++;
+      slot.x = v.x;
+      slot.z = v.z;
+      slot.yaw = v.yaw;
+      slot.halfW = v.halfW || (v.type === 'heli' ? 1.65 : v.type === 'boat' ? 1.65 : 1.08);
+      slot.halfL = v.halfL || (v.type === 'heli' ? 4.2 : v.type === 'boat' ? 4.6 : 2.38);
+      slot.maxY = v.y + (v.height || (v.type === 'heli' ? 3.2 : 1.55));
+      slot.speed = Math.hypot(v.vx || 0, v.vz || 0);
+      _vehColsOut.push(slot);
     }
-    return out;
+    return _vehColsOut;
   }
 
   function update(
@@ -1074,7 +1086,9 @@ export function createVehicles(scene) {
     let isDrifting = false;
     let isBoosting = false;
     let policeDist = 9999;
-    const impactOut = { intensity: 0, isMetal: false };
+    const impactOut = _impactOut;
+    impactOut.intensity = 0;
+    impactOut.isMetal = false;
     const queryRectFn = queryCollidersRect || ((minX, maxX, minZ, maxZ) => queryColliders((minX + maxX) * 0.5, (minZ + maxZ) * 0.5));
 
     for (const v of vehicles) {
@@ -1508,11 +1522,13 @@ export function createVehicles(scene) {
       }
     }
 
-    // Update billowing smoke / wake particle pool
+    // Update billowing smoke / wake particle pool (dirty-only GPU upload: 0 buffer upload when idle!)
     const sp = smokeGeo.attributes.position.array;
+    let anySmoke = false;
     for (let i = 0; i < SMOKE_N; i++) {
       const p = smokePool[i];
       if (p.life > 0) {
+        anySmoke = true;
         p.life -= dt;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -1522,17 +1538,23 @@ export function createVehicles(scene) {
         sp[i * 3] = p.x;
         sp[i * 3 + 1] = p.y;
         sp[i * 3 + 2] = p.z;
-      } else {
+      } else if (sp[i * 3 + 1] !== -999) {
         sp[i * 3 + 1] = -999;
+        anySmoke = true;
       }
     }
-    smokeGeo.attributes.position.needsUpdate = true;
+    if (anySmoke || _hadSmoke) {
+      smokeGeo.attributes.position.needsUpdate = true;
+      _hadSmoke = anySmoke;
+    }
 
-    // Update bright metallic collision sparks with gravity!
+    // Update bright metallic collision sparks with gravity (dirty-only GPU upload!)
     const skp = sparkGeo.attributes.position.array;
+    let anySparks = false;
     for (let i = 0; i < SPARK_N; i++) {
       const p = sparkPool[i];
       if (p.life > 0) {
+        anySparks = true;
         p.life -= dt;
         p.vy -= 18.0 * dt;
         p.x += p.vx * dt;
@@ -1543,21 +1565,24 @@ export function createVehicles(scene) {
         skp[i * 3] = p.x;
         skp[i * 3 + 1] = p.y;
         skp[i * 3 + 2] = p.z;
-      } else {
+      } else if (skp[i * 3 + 1] !== -999) {
         skp[i * 3 + 1] = -999;
+        anySparks = true;
       }
     }
-    sparkGeo.attributes.position.needsUpdate = true;
+    if (anySparks || _hadSparks) {
+      sparkGeo.attributes.position.needsUpdate = true;
+      _hadSparks = anySparks;
+    }
 
     const impactShake = impactOut.intensity > 2.2 ? Math.min(0.32, (impactOut.intensity - 1.5) * 0.016) : 0;
-    return {
-      isDrifting,
-      isBoosting,
-      policeDist,
-      crashIntensity: impactOut.intensity,
-      crashIsMetal: impactOut.isMetal,
-      impactShake,
-    };
+    _telemetryOut.isDrifting = isDrifting;
+    _telemetryOut.isBoosting = isBoosting;
+    _telemetryOut.policeDist = policeDist;
+    _telemetryOut.crashIntensity = impactOut.intensity;
+    _telemetryOut.crashIsMetal = impactOut.isMetal;
+    _telemetryOut.impactShake = impactShake;
+    return _telemetryOut;
   }
 
   return { group: vehiclesGroup, vehicles, getVehicleColliders, adoptStolenTrafficVehicle, dispatchPoliceNear, update };

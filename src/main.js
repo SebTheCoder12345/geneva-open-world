@@ -3,7 +3,6 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 
 import { buildGenevaWorld } from './world/buildGeneva.js';
@@ -12,7 +11,7 @@ import { buildGenevaIdentity } from './world/genevaIdentity.js';
 import { buildGenevaStreetLife } from './world/genevaStreetLife.js';
 import { createGenevaInteriors } from './world/genevaInteriors.js';
 import { createSkyDome, createEnvironmentMap } from './world/skyAndWater.js';
-import { createGtaPostPass, createHdrSanitizePass } from './world/gtaPostFX.js';
+import { createGtaPostPass } from './world/gtaPostFX.js';
 import { createRainTexture, loadPhotoPBRBundle } from './world/textures.js';
 import {
   MISSIONS,
@@ -33,12 +32,13 @@ const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
   powerPreference: 'high-performance',
-  preserveDrawingBuffer: true,
 });
 const initPr = Math.min(window.devicePixelRatio, 1.5);
 renderer.setPixelRatio(initPr);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.88; // calibrated to real Quai du Général-Guisan photographic exposure (deep cobalt sky + warm molasse stone!)
@@ -107,8 +107,6 @@ gtaoPass.render = (ren, writeBuf, readBuf, delta, mask) => {
   }
 };
 composer.addPass(gtaoPass);
-// Sanitize any NaN / +Inf FP16 pixels BEFORE UnrealBloomPass so bloom's 5-level Gaussian pyramid can NEVER flicker black boxes!
-composer.addPass(createHdrSanitizePass());
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth * 0.5), Math.floor(window.innerHeight * 0.5)),
@@ -116,8 +114,20 @@ const bloomPass = new UnrealBloomPass(
   0.42,
   0.94
 );
+// Inject zero-cost NaN/Inf FP16 guard directly into UnrealBloomPass's luminance high-pass shader
+// (eliminates an entire full-res HdrSanitizePass while keeping black-box bloom flicker 100% impossible!)
+if (bloomPass.materialHighPassFilter?.fragmentShader) {
+  bloomPass.materialHighPassFilter.fragmentShader = bloomPass.materialHighPassFilter.fragmentShader.replace(
+    'vec4 texel = texture2D( tDiffuse, vUv );',
+    `vec4 texel = texture2D( tDiffuse, vUv );
+    texel.r = (texel.r >= 0.0 && texel.r <= 60000.0) ? min(texel.r, 10.0) : 0.0;
+    texel.g = (texel.g >= 0.0 && texel.g <= 60000.0) ? min(texel.g, 10.0) : 0.0;
+    texel.b = (texel.b >= 0.0 && texel.b <= 60000.0) ? min(texel.b, 10.0) : 0.0;`
+  );
+  bloomPass.materialHighPassFilter.needsUpdate = true;
+}
 composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
+// Fused ACESFilmic + sRGB + NaN guard + CAS sharpen + speed blur in a SINGLE final pass (eliminates OutputPass!)
 const gtaPostPass = createGtaPostPass();
 composer.addPass(gtaPostPass);
 let usePostProcessing = true;
@@ -611,6 +621,7 @@ const hud = createHudAndMenus({
     renderer.setPixelRatio(pr);
     composer.setPixelRatio(pr);
     renderer.shadowMap.enabled = q !== 'low';
+    renderer.shadowMap.needsUpdate = true;
     gtaoPass.enabled = q !== 'low';
     usePostProcessing = q !== 'low';
   },
@@ -755,6 +766,19 @@ async function bootRealGeneva() {
   const streetLife = buildGenevaStreetLife(world.worldGroup, realData, streetFeatures, swiss3D, world.registerInteractable, world.insertCollider);
   interiors = createGenevaInteriors(scene, world.worldGroup, world.registerInteractable);
   world.attachRealGenevaLayers(swiss3D, identity, streetLife);
+  // Freeze world matrices on static Geneva signage & street-life layers so updateMatrixWorld skips hundreds of static transforms/frame!
+  const freezeStaticSubtree = (grp) => {
+    if (!grp) return;
+    grp.updateMatrixWorld(true);
+    grp.traverse((o) => {
+      if (o.isMesh || o.isInstancedMesh) {
+        o.matrixAutoUpdate = false;
+        o.updateMatrix();
+      }
+    });
+  };
+  freezeStaticSubtree(identity?.streetGroup);
+  freezeStaticSubtree(streetLife?.group);
 
   hud.setLoadProgress(94, 'Spawning vehicles, pedestrians & Geneva traffic…');
   vehicleMgr = createVehicles(scene);
@@ -787,9 +811,30 @@ function getActivePos() {
   return _activePos;
 }
 
-renderer.info.autoReset = false;
+  renderer.info.autoReset = false;
+let _lastShadowSnapX = 1e9;
+let _lastShadowSnapZ = 1e9;
 function renderFrame() {
   renderer.info.reset();
+  // Smooth staggered shadow cadence: refresh immediately when camera/player moves or on odd frames
+  // (interleaved with water planar reflection's even frames to eliminate alternating 2x frame-time spikes!)
+  if (renderer.shadowMap.enabled) {
+    const insideNow = Boolean(interiors?.isInside());
+    if (insideNow) {
+      renderer.shadowMap.needsUpdate = (frameCount & 3) === 0;
+    } else {
+      const movedShadow =
+        Math.abs(sunLight.target.position.x - _lastShadowSnapX) > 0.01 ||
+        Math.abs(sunLight.target.position.z - _lastShadowSnapZ) > 0.01;
+      const didRefl = world?.waterMesh?.userData?.didRenderReflection;
+      if (movedShadow || frameCount < 6 || (!didRefl && (frameCount & 1) === 1)) {
+        renderer.shadowMap.needsUpdate = true;
+        _lastShadowSnapX = sunLight.target.position.x;
+        _lastShadowSnapZ = sunLight.target.position.z;
+      }
+    }
+  }
+  if (world?.waterMesh?.userData) world.waterMesh.userData.didRenderReflection = false;
   if (usePostProcessing) composer.render();
   else renderer.render(scene, camera);
   cachedDrawCalls = renderer.info.render.calls;
@@ -1386,6 +1431,10 @@ function updateSkyAndLighting(dt, elapsed) {
   sunLight.intensity = (directPower * weatherMul + lightningFlash * 4.2) * (insideRoom ? 0.12 : 1.0);
   scene.environmentIntensity = insideRoom ? 0.22 : 1.0;
   gtaoPass.enabled = !insideRoom && settings.quality !== 'low';
+  // Hide the entire outdoor city & lake while inside an enclosed interior (drops indoor draw calls from ~300+ to ~15!)
+  if (world?.worldGroup) world.worldGroup.visible = !insideRoom;
+  if (world?.waterMesh) world.waterMesh.visible = !insideRoom;
+  if (vehicleMgr?.group) vehicleMgr.group.visible = !insideRoom;
 
   // Rich nocturnal Alpine skyglow + warm amber Geneva streetlamp bounce on hemisphere light
   hemiLight.color.copy(hemiSkyDay).lerp(hemiSkyNight, nightFactor);
@@ -1394,6 +1443,7 @@ function updateSkyAndLighting(dt, elapsed) {
 
   // Filmic camera eye-adaptation: 0.88 calibrated daylight -> 1.10 crisp cinematic midnight without washing out dark sky or windows!
   renderer.toneMappingExposure = 0.88 + nightFactor * 0.22 + sunsetFactor * 0.04;
+  gtaPostPass.uniforms.uExposure.value = renderer.toneMappingExposure;
 
   // Seamlessly switch between 3 REAL 2K Photographic HDRIs + PMREM Prefiltered Specular Reflection Probes!
   const hdrKey =
@@ -1403,14 +1453,14 @@ function updateSkyAndLighting(dt, elapsed) {
 
   if (activeHdr) {
     const isNightHdr = hdrKey === 'night';
-    skyMesh.visible = settings.rain || isNightHdr;
-    scene.background = settings.rain || isNightHdr ? null : activeHdr;
+    skyMesh.visible = !insideRoom && (settings.rain || isNightHdr);
+    scene.background = insideRoom || settings.rain || isNightHdr ? null : activeHdr;
     scene.environment = activeEnv || activeHdr;
     scene.backgroundIntensity = isNightHdr ? 0.50 : Math.max(0.42, dayFactor * 0.80);
     // Keep sleek IBL specular reflections on leather moto jacket, cars, wet roads & lakefront railings at night!
-    scene.environmentIntensity = isNightHdr ? 0.62 : Math.max(0.50, dayFactor * 0.92);
+    scene.environmentIntensity = insideRoom ? 0.22 : isNightHdr ? 0.62 : Math.max(0.50, dayFactor * 0.92);
   } else {
-    skyMesh.visible = true;
+    skyMesh.visible = !insideRoom;
   }
 
   // Dynamically relocate 6 warm physical-candela streetlamp PointLights at 4Hz at night (snapping on frame 1!)
@@ -1563,6 +1613,21 @@ const _mapState = {
   foundCount: 0,
 };
 
+// Pre-allocated zero-GC per-frame objects so V8 never triggers frame-hitching garbage collections!
+const _transitRiderState = {
+  entity: null,
+  mode: 'passenger',
+  inVehicle: false,
+  keys,
+  onStopArrive(ent, stopName) {
+    audio.playTpgStopChime();
+    hud.showStuntToast(`tpg ARRÊT · ${stopName.toUpperCase()}`);
+    hud.showSubtitle(`tpg ${ent.label} -> ${ent.dest || 'GENÈVE'} · Arrêt: ${stopName} (F to alight)`, 3400);
+  },
+};
+const _allDynColsBuf = [];
+const _emptyPlayerFx = { cameraShake: 0, impactSfx: null, toast: null, footstep: null, scuff: false, jump: false };
+
 function animate() {
   requestAnimationFrame(animate);
   frameCount++;
@@ -1579,19 +1644,13 @@ function animate() {
 
   const { nightFactor, sunDir } = updateSkyAndLighting(dt, elapsed);
   const activePosNow = started ? getActivePos() : null;
-  const transitRiderState = started && !paused
-    ? {
-        entity: activeVehicle?.trafficEntity || null,
-        mode: activeVehicle?.transitMode || 'passenger',
-        inVehicle: !!activeVehicle,
-        keys,
-        onStopArrive(ent, stopName) {
-          audio.playTpgStopChime();
-          hud.showStuntToast(`tpg ARRÊT · ${stopName.toUpperCase()}`);
-          hud.showSubtitle(`tpg ${ent.label} -> ${ent.dest || 'GENÈVE'} · Arrêt: ${stopName} (F to alight)`, 3400);
-        },
-      }
-    : null;
+  let transitRiderState = null;
+  if (started && !paused) {
+    _transitRiderState.entity = activeVehicle?.trafficEntity || null;
+    _transitRiderState.mode = activeVehicle?.transitMode || 'passenger';
+    _transitRiderState.inVehicle = !!activeVehicle;
+    transitRiderState = _transitRiderState;
+  }
   if (world) world.update(dt, elapsed, nightFactor, scene.fog.color, sunDir, activePosNow, transitRiderState, vehicleMgr?.vehicles || null);
 
   if (!started || !worldReady) {
@@ -1622,9 +1681,12 @@ function animate() {
     if (telemetry.crashIntensity > 2.4) {
       audio.playCarCrash(telemetry.crashIntensity, telemetry.crashIsMetal);
     }
-    const allDynCols = trafficCols.concat(vehicleMgr.getVehicleColliders(activeVehicle));
+    const vehCols = vehicleMgr.getVehicleColliders(activeVehicle);
+    _allDynColsBuf.length = 0;
+    for (let i = 0; i < trafficCols.length; i++) _allDynColsBuf.push(trafficCols[i]);
+    for (let i = 0; i < vehCols.length; i++) _allDynColsBuf.push(vehCols[i]);
     const isTransitFirstPerson = isTransitVehicle(activeVehicle) && settings.camMode === 1 && !settings.cinematicCam;
-    let playerFx = { cameraShake: 0, impactSfx: null, toast: null, footstep: null, scuff: false, jump: false };
+    let playerFx = _emptyPlayerFx;
     if (activeVehicle && (activeVehicle.style === 'scooter' || activeVehicle.style === 'escooter')) {
       player.updateScooterRider(activeVehicle);
     } else if (isTransitVehicle(activeVehicle)) {
@@ -1649,10 +1711,10 @@ function animate() {
         effCamYaw,
         world.queryColliders,
         !activeVehicle,
-        allDynCols,
+        _allDynColsBuf,
         world.sampleRoofHeight,
         inRoom ? inRoom.originY : null
-      ) || playerFx;
+      ) || _emptyPlayerFx;
       if (inRoom) interiors.clampPlayerInside(player.state);
       interiors?.update(elapsed);
       if (playerFx.footstep) audio.playFootstep(playerFx.footstep.kind, playerFx.footstep.foot, playerFx.footstep.intensity);

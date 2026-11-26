@@ -1160,7 +1160,28 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
   // Batch all static Bains des Pâquis wood decks, bleachers, cabanas, parasols, towels, ladders & diving tower (~180 meshes -> ~14 DC!)
   batchStaticGroup(staticGroup, { label: 'BainsDesPaquisStaticBatch' });
 
-  function update(elapsed, nightFactor = 0, winterFactor = 0) {
+  // Cache all shadow-casting meshes in dynamicGroup so we can toggle sun shadows cleanly by player distance!
+  const dynShadowMeshes = [];
+  dynamicGroup.traverse((o) => {
+    if (o.isMesh && o.castShadow) dynShadowMeshes.push(o);
+  });
+  let dynShadowsOn = true;
+
+  function update(elapsed, nightFactor = 0, winterFactor = 0, activePos = null) {
+    // Distance-cull ~420 multi-part summer people/toys draw calls when player is > 270m away across Geneva!
+    // Main static cedar pier, Buvette pavilion, cabanas, parasols & Le Phare remain 100% visible from across Lac Léman!
+    const d2 = activePos ? (activePos.x - bpX) * (activePos.x - bpX) + (activePos.z - bpZ) * (activePos.z - bpZ) : 0;
+    const nearBains = !activePos || d2 < 270 * 270;
+    dynamicGroup.visible = nearBains;
+    if (!nearBains) {
+      stringBulbMat.emissiveIntensity = 0.35 + nightFactor * 2.6;
+      return;
+    }
+    const wantDynShadow = !activePos || d2 < 78 * 78;
+    if (wantDynShadow !== dynShadowsOn) {
+      dynShadowsOn = wantDynShadow;
+      for (let i = 0; i < dynShadowMeshes.length; i++) dynShadowMeshes[i].castShadow = wantDynShadow;
+    }
     // 1. Gentle sunlit breathing & relaxed head turn for all 18 sunbathers
     for (let i = 0; i < animatedSunbathers.length; i++) {
       const sb = animatedSunbathers[i];

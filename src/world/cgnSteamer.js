@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { batchStaticGroup } from './staticBatcher.js';
 
 // =================================================================================================
 // CGN BELLE ÉPOQUE PADDLE STEAMER — "LA SUISSE" (1910) CRUISING LAC LÉMAN!
@@ -202,6 +203,8 @@ export function createCgnPaddleSteamer(worldGroup) {
       wheel.add(blade);
     }
     root.add(wheel);
+    batchStaticGroup(wheel, { label: `CGN_Paddle_${side}`, minMeshes: 2, disposeSource: true, staticMatrix: true });
+    wheel.userData.noBatch = true;
     paddleWheels.push(wheel);
   }
 
@@ -210,20 +213,25 @@ export function createCgnPaddleSteamer(worldGroup) {
   const steamMat = new THREE.MeshBasicMaterial({ color: 0xf4f8fc, transparent: true, opacity: 0.42, depthWrite: false });
   for (let i = 0; i < 8; i++) {
     const p = new THREE.Mesh(new THREE.IcosahedronGeometry(0.62, 1), steamMat);
+    p.userData.noBatch = true;
     root.add(p);
     steamPuffs.push({ mesh: p, phase: i / 8 });
   }
   const wakeMat = new THREE.MeshBasicMaterial({ color: 0xeef9ff, transparent: true, opacity: 0.48, side: THREE.DoubleSide, depthWrite: false });
   const wakeMesh = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 34.0).rotateX(-Math.PI / 2), wakeMat);
   wakeMesh.position.set(0, 0.08, -28.0);
+  wakeMesh.userData.noBatch = true;
   root.add(wakeMesh);
 
+  swissFlag.userData.noBatch = true;
   root.add(
     hullMain, waterBoot, bow, stern, bowsprit, bowScroll,
     deck1, lowerSalon, deck2, upperSalon, sunCanopy,
     bridge, bridgeRoof, funnelBase, funnelTop, mastFwd, mastAft,
     swissFlag, flagStaff
   );
+  // Collapse ~34 static hull, salon, bridge, funnel & mast meshes into ~8 merged draw calls!
+  batchStaticGroup(root, { label: 'CGN_LaSuisse_Hull', minMeshes: 2, disposeSource: true, staticMatrix: true });
 
   // Scenic open-water Lac Léman loop in La Rade (cleanly between Quai du Mont-Blanc, Bains des Pâquis & Jet d'Eau!)
   const loopCenterX = 245.0;

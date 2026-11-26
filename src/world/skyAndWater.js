@@ -188,8 +188,12 @@ export function createRealisticWater(scene) {
   const origBeforeRender = waterMesh.onBeforeRender;
   let reflFrame = 0;
   let hasInitialRefl = false;
+  const _reflPrevVis = [];
+  const _camFwd = new THREE.Vector3();
   waterMesh.onBeforeRender = function (renderer, sc, cam, geo, mat, group) {
     if (sc.overrideMaterial) return;
+    // Skip planar mirror reflection entirely while inside elevated enterable interiors!
+    if (cam.position.y > 420.0) return;
     // Inland occlusion skip:
     // - East of Pont des Bergues (x >= -240): south of 6-story Quai du Général-Guisan wall (Rue du Rhône, Molard, Cathédrale)
     // - West of Pont des Bergues (x < -240): keep live planar reflections ON across BOTH Rhône channels (Ponts de l'Île, Bel-Air, Quai de la Poste),
@@ -199,14 +203,19 @@ export function createRealisticWater(scene) {
     if (hasInitialRefl && cam.position.y < 14.0 && occludedInland) {
       return;
     }
+    // Also skip reflection render when standing on the south quay facing squarely AWAY from Lac Léman (toward buildings)
+    if (hasInitialRefl && cam.position.y < 10.0 && cam.position.z > 130.0 && cam.position.x > -180.0) {
+      cam.getWorldDirection(_camFwd);
+      if (_camFwd.z > 0.62 && _camFwd.y > -0.25) return;
+    }
     reflFrame++;
     if (hasInitialRefl && (reflFrame & 1) === 1) return;
     hasInitialRefl = true;
+    waterMesh.userData.didRenderReflection = true;
 
     const skipList = waterMesh.userData.skipInReflection || [];
-    const prevVis = [];
     for (let i = 0; i < skipList.length; i++) {
-      prevVis[i] = skipList[i].visible;
+      _reflPrevVis[i] = skipList[i].visible;
       skipList[i].visible = false;
     }
     const prevShadowAuto = renderer.shadowMap.autoUpdate;
@@ -214,7 +223,7 @@ export function createRealisticWater(scene) {
     origBeforeRender.call(this, renderer, sc, cam, geo, mat, group);
     renderer.shadowMap.autoUpdate = prevShadowAuto;
     for (let i = 0; i < skipList.length; i++) {
-      skipList[i].visible = prevVis[i];
+      skipList[i].visible = _reflPrevVis[i];
     }
   };
 

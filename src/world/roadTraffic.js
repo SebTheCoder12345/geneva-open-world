@@ -1300,6 +1300,7 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
             const o = trafficEntities[j];
             const dx = o.x - e.x;
             const dz = o.z - e.z;
+            if (dx > 42 || dx < -42 || dz > 42 || dz < -42) continue;
             const ahead = dx * fx + dz * fz;
             const lat = Math.abs(-dx * fz + dz * fx);
             const safeGap = e.halfL + o.halfL + 8.0;
@@ -1343,8 +1344,9 @@ export function createRoadTrafficNetwork(worldGroup, realData, insertCollider = 
             for (let si = 0; si < GENEVA_TRANSIT_STOPS.length; si++) {
               if (si === e.lastStopIdx) continue;
               const st = GENEVA_TRANSIT_STOPS[si];
-              const sd = Math.hypot(st.x - e.x, st.z - e.z);
-              if (sd < 16) {
+              const sdx = st.x - e.x;
+              const sdz = st.z - e.z;
+              if (sdx * sdx + sdz * sdz < 256) {
                 e.lastStopIdx = si;
                 e.stopTimer = isRidden ? 2.6 : 3.4;
                 targetSpeed = 0;
