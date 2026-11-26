@@ -149,6 +149,20 @@ export function createHudAndMenus(callbacks) {
     });
   });
 
+  // Weather & Season segmented control (Summer / Rain / Alpine Storm / Winter Geneva)
+  function syncWeather(mode) {
+    document.querySelectorAll('#weather-seg button').forEach((b) => {
+      b.classList.toggle('active', b.dataset.w === mode);
+    });
+    setTogRain(mode === 'rain' || mode === 'storm');
+  }
+  document.querySelectorAll('#weather-seg button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      syncWeather(btn.dataset.w);
+      callbacks.onSetWeather?.(btn.dataset.w);
+    });
+  });
+
   // Sliders
   const rngTod = document.getElementById('rng-tod');
   const todVal = document.getElementById('tod-val');
@@ -297,6 +311,7 @@ export function createHudAndMenus(callbacks) {
       rngTod.value = h.toFixed(1);
       todVal.textContent = formatTime(h);
     },
+    syncWeather,
     updateHud({
       mission,
       missionDist,

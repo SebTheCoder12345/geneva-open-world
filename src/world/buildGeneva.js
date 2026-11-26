@@ -30,6 +30,7 @@ import { createRoadTrafficNetwork } from './roadTraffic.js';
 import { buildGenevaStreetProps } from './streetProps.js';
 import { buildGenevaLandmarks } from './genevaLandmarks.js';
 import { buildBainsDesPaquis } from './bainsDesPaquis.js';
+import { createCgnPaddleSteamer } from './cgnSteamer.js';
 import { buildGenevaPedestrianZones } from './genevaPedestrianZones.js';
 import { batchStaticGroup } from './staticBatcher.js';
 import { createHumanAnimator } from '../game/humanAnim.js';
@@ -2209,6 +2210,56 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   // 7C-2. LES BAINS DES PÂQUIS — Vibrant Summer Lakeside Beach Club, Sunbathers, Swimmers, Buvette Terrace & 10m Diving Tower!
   const bainsDesPaquis = buildBainsDesPaquis(worldGroup, insertCollider, registerInteractable);
 
+  // 7C-3. CGN BELLE ÉPOQUE PADDLE STEAMER ("LA SUISSE") CRUISING LAC LÉMAN!
+  const cgnSteamer = createCgnPaddleSteamer(worldGroup);
+
+  // 7C-4. WINTER GENEVA GOLDEN CHRISTMAS GARLAND LIGHTS along Rue du Rhône & Quai du Général-Guisan (visible in Winter mode!)
+  const christmasGroup = new THREE.Group();
+  christmasGroup.name = 'Geneva_Winter_Christmas_Lights';
+  christmasGroup.visible = false;
+  worldGroup.add(christmasGroup);
+  {
+    const xmasBulbMat = new THREE.MeshBasicMaterial({ color: 0xffe296 });
+    const xmasSpans = [];
+    for (let i = 0; i < 8; i++) {
+      const t = i / 7;
+      // Overhead festive spans across Rue du Rhône luxury corridor
+      const rx = -175 + t * 285;
+      const rz = 235 + t * 65;
+      xmasSpans.push([[rx - 2, rz - 7.5], [rx + 2, rz + 7.5]]);
+      // Quai du Général-Guisan promenade garlands
+      const qx = -40 + t * 195;
+      const qz = 152 + t * 92;
+      xmasSpans.push([[qx - 3, qz - 6.5], [qx + 3, qz + 6.5]]);
+    }
+    const xmasCableMat = new THREE.MeshBasicMaterial({ color: 0x1e2228 });
+    const pts = [];
+    for (const [[x1, z1], [x2, z2]] of xmasSpans) {
+      const baseY = getGroundHeight((x1 + x2) * 0.5, (z1 + z2) * 0.5) + 8.8;
+      let prevV = new THREE.Vector3(x1, baseY, z1);
+      for (let k = 1; k <= 10; k++) {
+        const u = k / 10;
+        const sag = Math.sin(u * Math.PI) * 1.15;
+        const curV = new THREE.Vector3(x1 + (x2 - x1) * u, baseY - sag, z1 + (z2 - z1) * u);
+        const seg = new THREE.Vector3().subVectors(curV, prevV);
+        const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, seg.length(), 4), xmasCableMat);
+        wire.position.copy(prevV).add(curV).multiplyScalar(0.5);
+        wire.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), seg.normalize());
+        christmasGroup.add(wire);
+        if (k < 10) pts.push([curV.x, curV.y - 0.12, curV.z]);
+        prevV = curV;
+      }
+    }
+    const xmasInst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.11, 6, 5), xmasBulbMat, pts.length);
+    const xd = new THREE.Object3D();
+    pts.forEach(([px, py, pz], idx) => {
+      xd.position.set(px, py, pz);
+      xd.updateMatrix();
+      xmasInst.setMatrixAt(idx, xd.matrix);
+    });
+    christmasGroup.add(xmasInst);
+  }
+
   // 7D. 1:1 REAL GENEVA PEDESTRIAN WALKING ZONES (101 Plazas, 1,715 Footways, 185 Stone Stairs, 102 Park Lawns, Rues-Basses Globe Lamps & SIG Fountains!)
   const pedZones = buildGenevaPedestrianZones(
     worldGroup,
@@ -2573,12 +2624,12 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
 
   const pedLoader = new GLTFLoader();
   const pedArchetypeUrls = [
-    '/models/ped_woman_chic.glb',       // 0: Chic Geneva Woman (long hair, camel trench, designer tote, shades)
-    '/models/ped_streetwear.glb',       // 1: Streetwear Local (backward cap, oversized hoodie, backpack)
-    '/models/ped_woman_athleisure.glb', // 2: Lakefront Jogger Woman (high ponytail, headphones, zip-top, leggings)
-    '/models/ped_banker_suit.glb',      // 3: Geneva Private Banker (tailored suit, silver hair, leather briefcase)
-    '/models/ped_tourist_summer.glb',   // 4: Summer Tourist (bucket hat, short-sleeve polo, shorts, DSLR camera)
-    '/models/ped_puffer_tech.glb',      // 5: Alpine Local (knit beanie, quilted puffer jacket, boots)
+    'models/ped_woman_chic.glb',       // 0: Chic Geneva Woman (long hair, camel trench, designer tote, shades)
+    'models/ped_streetwear.glb',       // 1: Streetwear Local (backward cap, oversized hoodie, backpack)
+    'models/ped_woman_athleisure.glb', // 2: Lakefront Jogger Woman (high ponytail, headphones, zip-top, leggings)
+    'models/ped_banker_suit.glb',      // 3: Geneva Private Banker (tailored suit, silver hair, leather briefcase)
+    'models/ped_tourist_summer.glb',   // 4: Summer Tourist (bucket hat, short-sleeve polo, shorts, DSLR camera)
+    'models/ped_puffer_tech.glb',      // 5: Alpine Local (knit beanie, quilted puffer jacket, boots)
   ];
   const pedTemplates = [];
   const fleeingDrivers = [];
@@ -2776,12 +2827,20 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
   onProgress(100, '1:1 Geneva ready.');
 
   let rainWet = false;
+  let winterFactor = 0.0;
   function setWetRoads(isRaining) {
     rainWet = isRaining;
     asphaltMat.roughness = isRaining ? 0.14 : 0.74;
     asphaltMat.metalness = isRaining ? 0.65 : 0.14;
     cobbleMat.roughness = isRaining ? 0.24 : 0.85;
     terrainMat.roughness = isRaining ? 0.28 : 0.88;
+  }
+  function setWinterMode(isWinter) {
+    winterFactor = isWinter ? 1.0 : 0.0;
+    christmasGroup.visible = isWinter;
+    if (swiss3DRef?.winterUniform) swiss3DRef.winterUniform.value = winterFactor;
+    terrainMat.color.setHex(isWinter ? 0xdde5ef : 0xffffff);
+    cobbleMat.color.setHex(isWinter ? 0xd4dce6 : 0xc4c0b8);
   }
 
   function getDynamicColliders(excludeEntity = null) {
@@ -2904,7 +2963,8 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     }
 
     genevaLandmarks.update(elapsed, nightFactor);
-    if (bainsDesPaquis?.update) bainsDesPaquis.update(elapsed, nightFactor);
+    if (bainsDesPaquis?.update) bainsDesPaquis.update(elapsed, nightFactor, winterFactor);
+    if (cgnSteamer?.update) cgnSteamer.update(dt, elapsed, nightFactor);
 
     for (const sb of sailboats) {
       const a = elapsed * sb.speed + sb.phase;
@@ -3106,7 +3166,9 @@ export function buildGenevaWorld(scene, realData, orthoTex, photoBundle, onProgr
     vfxGroup,
     lampCoords,
     canopies,
+    cgnSteamer,
     setWetRoads,
+    setWinterMode,
     update,
   };
 }

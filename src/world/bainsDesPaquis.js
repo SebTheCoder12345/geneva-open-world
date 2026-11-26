@@ -366,6 +366,25 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
     const [wx, wz] = toWorld(10.6, -28.1);
     insertCollider({ kind: 'obb', x: wx, z: wz, yaw: bpYaw, halfW: 1.25, halfL: 7.8, maxY: deckTopY + 2.7, walkableTop: false });
   }
+  // Interactive Changing Cabana: swap cleanly between Savile Row Banker Suit & Riviera Summer Swimwear!
+  if (registerInteractable) {
+    const [cxW, czW] = toWorld(8.6, -28.0);
+    registerInteractable({
+      id: 'bains_changing_cabana',
+      type: 'cabana_outfit',
+      label: 'CHANGE OUTFIT · SWIMWEAR / SUIT',
+      subtitle: 'Changed outfit at the Bains des Pâquis cabanas! (Tip: press O anytime to toggle)',
+      toast: 'BAINS DES PÂQUIS · CABINE',
+      x: cxW,
+      y: deckTopY,
+      z: czW,
+      rimRadius: 1.1,
+      persistent: false,
+      duration: 1.2,
+      radius: 2.8,
+      priority: 1.2,
+    });
+  }
 
   // Outdoor lakeside chrome freshwater shower post
   const shPost = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 2.45, 8), chromeMat);
@@ -1101,13 +1120,33 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
   createSummerLocal(dynamicGroup, -7.2, deckTopY, 13.5, -1.3, 62, 'stand');
   createSummerLocal(dynamicGroup, 5.5, deckTopY, 31.5, 1.1, 63, 'stand');
   createSummerLocal(dynamicGroup, 9.2, deckTopY, 28.5, 1.45, 64, 'stand');
-  // Brave summer local poised at the tip of the 5m diving board ready to plunge into Lac Léman!
-  createSummerLocal(dynamicGroup, 11.4 + 3.85, deckTopY + 5.58, 34.5, Math.PI * 0.5, 65, 'dive');
+  // Brave summer local who actually walks out, bounces on the 5m diving board, swan-dives into Lac Léman with 3D water splashes, and swims back!
+  const diverObj = createSummerLocal(dynamicGroup, 11.4 + 3.85, deckTopY + 5.58, 34.5, Math.PI * 0.5, 65, 'dive');
+  // 3D Splash Plume & Double Water Rings below the 5m/10m diving tower!
+  const splashGroup = new THREE.Group();
+  splashGroup.position.set(11.4 + 6.6, 0.10, 34.5);
+  const splashMat = new THREE.MeshBasicMaterial({ color: 0xf4fcff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+  const splashCone = new THREE.Mesh(new THREE.ConeGeometry(1.15, 2.8, 12, 1, true), splashMat);
+  splashCone.position.y = 1.2;
+  const splashRing1 = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.05, 22).rotateX(-Math.PI / 2), splashMat);
+  const splashRing2 = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.55, 22).rotateX(-Math.PI / 2), splashMat);
+  splashGroup.add(splashCone, splashRing1, splashRing2);
+  dynamicGroup.add(splashGroup);
+
+  // Winter Geneva Sauna Steam Plumes rising gently from the Bains des Pâquis sauna pavilion in Winter mode!
+  const steamPuffs = [];
+  const steamMat = new THREE.MeshBasicMaterial({ color: 0xf2f7fc, transparent: true, opacity: 0, depthWrite: false });
+  for (let s = 0; s < 10; s++) {
+    const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(0.65, 1), steamMat);
+    puff.position.set(buvX - 1.5, deckTopY + 4.1, buvZ - 4.0);
+    dynamicGroup.add(puff);
+    steamPuffs.push({ mesh: puff, phase: s / 10 });
+  }
 
   // Batch all static Bains des Pâquis wood decks, bleachers, cabanas, parasols, towels, ladders & diving tower (~180 meshes -> ~14 DC!)
   batchStaticGroup(staticGroup, { label: 'BainsDesPaquisStaticBatch' });
 
-  function update(elapsed, nightFactor = 0) {
+  function update(elapsed, nightFactor = 0, winterFactor = 0) {
     // 1. Gentle sunlit breathing & relaxed head turn for all 18 sunbathers
     for (let i = 0; i < animatedSunbathers.length; i++) {
       const sb = animatedSunbathers[i];
@@ -1146,17 +1185,79 @@ export function buildBainsDesPaquis(worldGroup, insertCollider = null, registerI
       sw.ripple.material.opacity = (1.0 - ripCycle) * 0.42;
     }
 
-    // 3. Gentle idle chat motion for Buvette & pier summer locals
+    // 3. Live 5m Swan-Dive Cycle + 3D Splash Plume + Gentle idle chat motion for Buvette & pier summer locals!
+    const divePeriod = 9.0;
+    const dtCycle = elapsed % divePeriod;
+    let splashAlpha = 0;
     for (let i = 0; i < animatedCrowd.length; i++) {
       const c = animatedCrowd[i];
       c.head.rotation.y = Math.sin(elapsed * 1.2 + c.phase) * 0.24;
       if (c.pose === 'dive') {
-        const bounce = Math.abs(Math.sin(elapsed * 2.4)) * 0.05;
-        c.armL.rotation.x = -0.35 - bounce * 4.0;
-        c.armR.rotation.x = -0.35 - bounce * 4.0;
+        const boardX0 = 11.4 + 1.8;
+        const boardTipX = 11.4 + 4.1;
+        const boardY = deckTopY + 5.58;
+        if (dtCycle < 2.2) {
+          // Walk confidently out along the blue 5m board
+          const u = dtCycle / 2.2;
+          c.group.position.set(boardX0 + (boardTipX - boardX0) * u, boardY, 34.5);
+          c.group.rotation.set(0, Math.PI * 0.5, 0);
+          c.armL.rotation.x = Math.sin(dtCycle * 6.5) * 0.35;
+          c.armR.rotation.x = -Math.sin(dtCycle * 6.5) * 0.35;
+        } else if (dtCycle < 3.1) {
+          // Springboard bounce & arms raise overhead
+          const u = (dtCycle - 2.2) / 0.9;
+          const hop = Math.abs(Math.sin(u * Math.PI * 2)) * 0.28;
+          c.group.position.set(boardTipX, boardY + hop, 34.5);
+          c.group.rotation.set(0, Math.PI * 0.5, 0);
+          c.armL.rotation.x = -Math.PI * 0.72 * u;
+          c.armR.rotation.x = -Math.PI * 0.72 * u;
+        } else if (dtCycle < 4.55) {
+          // Graceful parabolic swan-dive arc from 5m board into Lac Léman!
+          const u = (dtCycle - 3.1) / 1.45;
+          const dx = boardTipX + u * 2.65;
+          const dy = boardY + 1.55 * u - (boardY + 2.2) * u * u;
+          c.group.position.set(dx, dy, 34.5);
+          c.group.rotation.set(0, Math.PI * 0.5, -u * Math.PI * 0.88);
+          c.armL.rotation.x = -Math.PI * 0.92;
+          c.armR.rotation.x = -Math.PI * 0.92;
+        } else if (dtCycle < 6.0) {
+          // Big white splash impact + resurfacing!
+          const u = (dtCycle - 4.55) / 1.45;
+          splashAlpha = Math.sin(Math.min(1, u * 1.15) * Math.PI);
+          splashCone.scale.set(0.65 + u * 0.85, 0.35 + splashAlpha * 1.15, 0.65 + u * 0.85);
+          splashRing1.scale.set(0.7 + u * 2.8, 0.7 + u * 2.8, 1);
+          splashRing2.scale.set(0.5 + u * 3.6, 0.5 + u * 3.6, 1);
+          c.group.position.set(boardTipX + 2.65, -1.1 + u * 0.55, 34.5);
+          c.group.rotation.set(0, -Math.PI * 0.5, 0);
+        } else {
+          // Swim smoothly back toward the chrome diving-tower ladder
+          const u = (dtCycle - 6.0) / 3.0;
+          c.group.position.set(boardTipX + 2.65 - u * 4.2, -0.55 + Math.sin(elapsed * 5.0) * 0.06, 34.5 + u * 1.5);
+          c.group.rotation.set(0, -Math.PI * 0.5, 0);
+          c.armL.rotation.x = elapsed * 5.5;
+          c.armR.rotation.x = elapsed * 5.5 + Math.PI;
+        }
       } else {
         c.armR.rotation.x = (c.pose === 'sit' ? -0.65 : 0) + Math.sin(elapsed * 1.8 + c.phase) * 0.14;
       }
+    }
+    splashMat.opacity = splashAlpha * 0.78;
+    splashGroup.visible = splashAlpha > 0.02;
+
+    // 4. Winter Geneva Sauna Steam Plumes (warm rising mist over Bains des Pâquis in winter mode!)
+    steamMat.opacity = winterFactor * 0.28;
+    for (let s = 0; s < steamPuffs.length; s++) {
+      const sp = steamPuffs[s];
+      sp.mesh.visible = winterFactor > 0.05;
+      if (!sp.mesh.visible) continue;
+      const t = (elapsed * 0.18 + sp.phase) % 1.0;
+      sp.mesh.position.set(
+        buvX - 1.5 + Math.sin(elapsed * 0.7 + s) * (0.4 + t * 1.4),
+        deckTopY + 4.1 + t * 5.6,
+        buvZ - 4.0 + Math.cos(elapsed * 0.6 + s) * (0.4 + t * 1.2)
+      );
+      const sc = 0.55 + t * 2.1;
+      sp.mesh.scale.set(sc, sc * 0.75, sc);
     }
 
     // 4. Bobbing floating swim pontoon raft, swim-zone buoys & paddleboards on Lac Léman waves!

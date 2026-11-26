@@ -36,13 +36,14 @@
       <div class="ctrl-summary">
         <div><kbd>W A S D</kbd> Move / Drive / Swim &nbsp;·&nbsp; <kbd>SHIFT</kbd> Sprint &nbsp;·&nbsp; <kbd>SPACE</kbd> Jump / Vault / Drift</div>
         <div><kbd>G</kbd> Parkour Roll &nbsp;·&nbsp; <kbd>CTRL</kbd>/<kbd>Z</kbd> Crouch &nbsp;·&nbsp; <kbd>1</kbd>–<kbd>4</kbd> Wave / Cheer / Backflip / Watch</div>
-        <div><kbd>F</kbd> Enter / Steal / Ride E-Scooter &nbsp;·&nbsp; <kbd>E</kbd> Sit / Interact / Nitro &nbsp;·&nbsp; <kbd>X</kbd> Grapple Hook &nbsp;·&nbsp; <kbd>R</kbd> Radio &nbsp;·&nbsp; <kbd>C</kbd> Cinematic</div>
-        <div><kbd>TAB</kbd> Swiss City Map &nbsp;·&nbsp; <kbd>ESC</kbd> / <kbd>P</kbd> Menu &nbsp;·&nbsp; <kbd>V</kbd> Camera &nbsp;·&nbsp; <kbd>M</kbd> Sound &nbsp;·&nbsp; <kbd>\</kbd> Full screen</div>
+        <div><kbd>F</kbd> Enter / Steal / Ride E-Scooter &nbsp;·&nbsp; <kbd>E</kbd> Sit / Enter Building / Interact &nbsp;·&nbsp; <kbd>O</kbd> Suit / Swimwear &nbsp;·&nbsp; <kbd>U</kbd> Weather / Winter</div>
+        <div><kbd>X</kbd> Grapple Hook &nbsp;·&nbsp; <kbd>R</kbd> Radio &nbsp;·&nbsp; <kbd>C</kbd> Cinematic &nbsp;·&nbsp; <kbd>TAB</kbd> Swiss Map &nbsp;·&nbsp; <kbd>ESC</kbd> Menu &nbsp;·&nbsp; <kbd>V</kbd> Camera &nbsp;·&nbsp; <kbd>M</kbd> Sound</div>
       </div>
 
       <div id="mappick">
         <span class="pick-label">Start in:</span>
         <button class="district-btn active" data-spawn="rade">Rade &amp; Jardin Anglais</button>
+        <button class="district-btn" data-spawn="bains">Bains des Pâquis</button>
         <button class="district-btn" data-spawn="vieilleville">Vieille-Ville</button>
         <button class="district-btn" data-spawn="paquis">Pâquis &amp; Jet d'Eau</button>
         <button class="district-btn" data-spawn="bastions">Place de Neuve &amp; Bastions</button>
@@ -206,6 +207,16 @@
           <div class="setting-row">
             <div class="s-label">Full screen</div>
             <button class="toggle-btn" id="tog-fs">Off</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="s-label">Weather &amp; Season <span class="muted">(U key)</span></div>
+            <div class="seg-group" id="weather-seg">
+              <button data-w="summer" class="active">Summer</button>
+              <button data-w="rain">Rain</button>
+              <button data-w="storm">Storm</button>
+              <button data-w="winter">Winter</button>
+            </div>
           </div>
 
           <div class="setting-row">

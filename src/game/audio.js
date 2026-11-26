@@ -24,6 +24,8 @@ export function createAudioEngine() {
 
   let radioStation = 'off';
   let radioTimer = null;
+  let lastBellTime = -40;
+  let lastWhistleTime = -35;
 
   const CHORDS = {
     couleur: [220, 261.63, 329.63, 392.0],
@@ -173,13 +175,31 @@ export function createAudioEngine() {
     }
   }
 
-  function update(activeVehicle, playerPos, telemetry = {}, wantedLevel = 0, elapsed = 0) {
+  function update(activeVehicle, playerPos, telemetry = {}, wantedLevel = 0, elapsed = 0, envMeta = null) {
     if (!ctx) return;
     const now = ctx.currentTime;
 
     const dJet = Math.hypot(playerPos.x - 457.8, playerPos.z - -147.0);
-    const jetBoost = Math.max(0, 1 - dJet / 180) * 0.16;
-    cityGain.gain.setTargetAtTime(vols.city * (0.04 + jetBoost), now, 0.1);
+    const jetBoost = Math.max(0, 1 - dJet / 195) * 0.18;
+    const dBains = Math.hypot(playerPos.x - 445.0, playerPos.z - -504.0);
+    const bainsWaveBoost = Math.max(0, 1 - dBains / 120) * 0.085;
+    const rainBoost = envMeta?.rain ? 0.075 : 0;
+    cityGain.gain.setTargetAtTime(vols.city * (0.04 + jetBoost + bainsWaveBoost + rainBoost), now, 0.12);
+
+    // Spatial Cathédrale Saint-Pierre bronze bell chime when approaching Vieille-Ville (rate-limited every 55s)
+    const dCath = Math.hypot(playerPos.x - -123.1, playerPos.z - 540.5);
+    if (dCath < 125 && elapsed - lastBellTime > 55) {
+      lastBellTime = elapsed;
+      playCathedralBell(Math.max(0.25, 1 - dCath / 130));
+    }
+    // Spatial CGN Paddle Steamer ('La Suisse') deep twin-tone brass steam whistle when cruising near player!
+    if (envMeta?.steamerPos) {
+      const dShip = Math.hypot(playerPos.x - envMeta.steamerPos.x, playerPos.z - envMeta.steamerPos.z);
+      if (dShip < 165 && elapsed - lastWhistleTime > 48) {
+        lastWhistleTime = elapsed;
+        playSteamerWhistle(Math.max(0.25, 1 - dShip / 175));
+      }
+    }
 
     if (activeVehicle) {
       if (activeVehicle.type === 'heli') {
@@ -562,6 +582,83 @@ export function createAudioEngine() {
     }
   }
 
+  // Resonant Cathédrale Saint-Pierre de Genève historic bronze church bell (Clémence bourdon harmonics!)
+  function playCathedralBell(prox = 0.8) {
+    if (!ctx || !masterGain || muted || ctx.state === 'suspended') return;
+    const now = ctx.currentTime;
+    const partials = [
+      [196.0, 0.16, 3.8],
+      [233.1, 0.09, 2.8],
+      [392.0, 0.11, 2.4],
+      [587.3, 0.055, 1.8],
+    ];
+    for (const strike of [0, 2.1]) {
+      const t0 = now + strike;
+      for (const [freq, amp, dec] of partials) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0008, t0);
+        g.gain.linearRampToValueAtTime(amp * prox * vols.city, t0 + 0.025);
+        g.gain.exponentialRampToValueAtTime(0.0006, t0 + dec);
+        o.connect(g);
+        g.connect(masterGain);
+        o.start(t0);
+        o.stop(t0 + dec + 0.05);
+      }
+    }
+  }
+
+  // Deep Belle Époque CGN Paddle Steamer ('La Suisse') twin-tone brass steam whistle!
+  function playSteamerWhistle(prox = 0.8) {
+    if (!ctx || !masterGain || muted || ctx.state === 'suspended') return;
+    const now = ctx.currentTime;
+    for (const [freq, amp] of [[185.0, 0.09], [233.1, 0.075], [277.2, 0.05]]) {
+      const o = ctx.createOscillator();
+      const filt = ctx.createBiquadFilter();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(freq * 0.98, now);
+      o.frequency.linearRampToValueAtTime(freq, now + 0.28);
+      filt.type = 'lowpass';
+      filt.frequency.value = 540;
+      g.gain.setValueAtTime(0.0008, now);
+      g.gain.linearRampToValueAtTime(amp * prox * vols.city, now + 0.22);
+      g.gain.setValueAtTime(amp * prox * vols.city, now + 1.35);
+      g.gain.exponentialRampToValueAtTime(0.0006, now + 2.05);
+      o.connect(filt);
+      filt.connect(g);
+      g.connect(masterGain);
+      o.start(now);
+      o.stop(now + 2.1);
+    }
+  }
+
+  // Dramatic rolling Alpine thunderstorm thunderclap & Mont Salève echo!
+  function playThunderRumble() {
+    if (!ctx || !masterGain || !sharedNoiseBuf || muted || ctx.state === 'suspended') return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = sharedNoiseBuf;
+    src.loop = true;
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass';
+    lpf.frequency.setValueAtTime(340, now);
+    lpf.frequency.exponentialRampToValueAtTime(68, now + 2.9);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.38 * vols.city, now + 0.09);
+    g.gain.exponentialRampToValueAtTime(0.09 * vols.city, now + 0.9);
+    g.gain.linearRampToValueAtTime(0.18 * vols.city, now + 1.4);
+    g.gain.exponentialRampToValueAtTime(0.0008, now + 3.2);
+    src.connect(lpf);
+    lpf.connect(g);
+    g.connect(masterGain);
+    src.start(now);
+    src.stop(now + 3.3);
+  }
+
   return {
     ensureInit,
     playChime,
@@ -575,6 +672,9 @@ export function createAudioEngine() {
     playTramBell,
     playTransitDoor,
     playTpgStopChime,
+    playCathedralBell,
+    playSteamerWhistle,
+    playThunderRumble,
     setRadio,
     getRadio: () => radioStation,
     update,

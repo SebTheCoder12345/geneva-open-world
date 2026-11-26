@@ -786,13 +786,15 @@ float swHash21(vec2 p) {
         );
   };
 
+  const winterUniform = { value: 0.0 };
+
   // 2. ROOF MATERIAL: Refined Geneva Standing-Seam Zinc Mansards + Subtle Dark-Lead Dormer Lucarnes +
-  //    Weathered Swiss Terracotta Old Town Tiles + Verdigris Copper Cathédrale Spire + swisstopo Orthophoto Flat Roofs!
+  //    Weathered Swiss Terracotta Old Town Tiles + Verdigris Copper Cathédrale Spire + Winter Alpine Snow!
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.64,
-    metalness: 0.26,
-    envMapIntensity: 1.24,
+    roughness: 0.68,
+    metalness: 0.16,
+    envMapIntensity: 0.72,
     side: THREE.DoubleSide,
   });
 
@@ -801,6 +803,7 @@ float swHash21(vec2 p) {
     shader.uniforms.uSlateTex = { value: photoBundle?.slateRoofDiff || upperMats[0].map };
     shader.uniforms.uBounds = { value: boundsVec };
     shader.uniforms.uNightGlow = nightUniform;
+    shader.uniforms.uWinterSnow = winterUniform;
 
     shader.vertexShader =
       `attribute vec4 aMeta;
@@ -828,6 +831,7 @@ uniform sampler2D uOrthoTex;
 uniform sampler2D uSlateTex;
 uniform vec4 uBounds;
 uniform float uNightGlow;
+uniform float uWinterSnow;
 ` +
       shader.fragmentShader
         .replace(
@@ -849,10 +853,10 @@ uniform float uNightGlow;
           vec2 slateUv = vec2(rUMeters / 6.4, vRoofWorldPos.y / 3.6);
           vec3 slateTexCol = texture2D(uSlateTex, slateUv).rgb;
 
-          // Authentic blue-charcoal Geneva standing-seam zinc mansards & weathered Vieille-Ville clay tiles
+          // Authentic deep blue-charcoal Geneva standing-seam zinc mansards (never chalky white in midday sun!) & weathered Vieille-Ville clay tiles
           float seamRib = smoothstep(0.86, 0.98, abs(sin(rUMeters * 4.2)));
-          vec3 zincCol = vec3(0.068, 0.080, 0.098) * (0.78 + 0.62 * slateTexCol) * (1.0 - seamRib * 0.22);
-          vec3 clayBase = mix(vec3(0.22, 0.072, 0.036), vec3(0.16, 0.064, 0.038), rSeed);
+          vec3 zincCol = vec3(0.032, 0.038, 0.048) * (0.78 + 0.56 * slateTexCol) * (1.0 - seamRib * 0.24);
+          vec3 clayBase = mix(vec3(0.20, 0.068, 0.034), vec3(0.15, 0.058, 0.036), rSeed);
           float tileRow = smoothstep(0.80, 0.96, abs(sin(vRoofWorldPos.y * 8.5)));
           vec3 clayCol = clayBase * (0.76 + 0.62 * slateTexCol) * (1.0 - tileRow * 0.16);
           vec3 slopedCol = mix(zincCol, clayCol, isClay);
@@ -879,16 +883,20 @@ uniform float uNightGlow;
           // Only truly flat roofs (> 97.5% vertical normal) use cool gravel/zinc orthophoto blend; ALL pitched hip/mansard roofs stay rich Geneva zinc/clay!
           float isFlat = smoothstep(0.975, 0.995, swRN.y);
           float isUnder = smoothstep(-0.15, -0.45, swRN.y);
-          vec3 flatRoofCol = mix(orthoCol * 0.42, vec3(0.11, 0.12, 0.135), 0.45);
+          vec3 flatRoofCol = mix(orthoCol * 0.36, vec3(0.075, 0.082, 0.095), 0.52);
           vec3 finalRoof = mix(slopedCol, flatRoofCol, isFlat * 0.88);
-          finalRoof = mix(finalRoof, vec3(0.045, 0.042, 0.038), isUnder);
+          finalRoof = mix(finalRoof, vec3(0.036, 0.034, 0.032), isUnder);
+          // Optional Winter Geneva Alpine snow blanket on upward-facing roofs!
+          float roofSnow = smoothstep(0.30, 0.72, swRN.y) * uWinterSnow * 0.86;
+          finalRoof = mix(finalRoof, vec3(0.76, 0.82, 0.90), roofSnow);
           diffuseColor.rgb = finalRoof;
           `
         )
         .replace(
           '#include <roughnessmap_fragment>',
           `#include <roughnessmap_fragment>
-          roughnessFactor = mix(mix(0.56, 0.09, inDormGlass), 0.86, smoothstep(0.975, 0.995, swRN.y));
+          roughnessFactor = mix(mix(0.68, 0.10, inDormGlass), 0.88, smoothstep(0.975, 0.995, swRN.y));
+          roughnessFactor = mix(roughnessFactor, 0.84, smoothstep(0.30, 0.72, swRN.y) * uWinterSnow);
           `
         )
         .replace(
@@ -931,6 +939,7 @@ uniform float uNightGlow;
     wallMat,
     roofMat,
     nightUniform,
+    winterUniform,
     trimMats: { trimStoneMat, trimMetalMat, trimIronMat, trimAwningMat },
   };
 }
@@ -955,11 +964,11 @@ export async function loadSwissBuildings3D(
   buildingsMeta = null,
   realPlaces = null
 ) {
-  const res = await fetch('/data/swissbuildings3d/manifest.json');
+  const res = await fetch('data/swissbuildings3d/manifest.json');
   if (!res.ok) throw new Error('swissBUILDINGS3D manifest missing');
   const manifest = await res.json();
 
-  const { wallMat, roofMat, nightUniform, trimMats } = createSwissBuildingsMaterials(
+  const { wallMat, roofMat, nightUniform, winterUniform, trimMats } = createSwissBuildingsMaterials(
     upperMats,
     groundMats,
     photoBundle,
@@ -973,7 +982,7 @@ export async function loadSwissBuildings3D(
   worldGroup.add(swissGroup);
 
   const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath('/draco/');
+  dracoLoader.setDecoderPath('draco/');
   const gltfLoader = new GLTFLoader();
   gltfLoader.setDRACOLoader(dracoLoader);
 
@@ -1181,9 +1190,9 @@ export async function loadSwissBuildings3D(
         const cy = (v0.y + v1.y + v2.y) / 3;
         const cz = (v0.z + v1.z + v2.z) / 3;
 
-        // Route ANY pitched roof slope (|fN.y| > 0.34 & elevated above 9.0m) cleanly into the authentic
-        // Geneva standing-seam zinc / clay tile roof shader (fixes bright white sloped attic roofs on Rolex & Quai palaces!)
-        const triIsRoof = isRoof || (Math.abs(fN.y) > 0.34 && cy > 9.0);
+        // Route ANY pitched roof slope (|fN.y| > 0.24 & elevated above 9.0m) cleanly into the authentic
+        // Geneva standing-seam zinc / clay tile roof shader (catches steep mansards on Rolex & Quai palaces!)
+        const triIsRoof = isRoof || (Math.abs(fN.y) > 0.24 && cy > 9.0);
         const triSeenSet = triIsRoof ? seenRoofTris : seenWallTris;
         const triBucketMap = triIsRoof ? roofBuckets : wallBuckets;
 
@@ -1595,7 +1604,7 @@ export async function loadSwissBuildings3D(
     await Promise.all(
       tileSlice.map(async (tile) => {
         try {
-          const gltf = await gltfLoader.loadAsync(tile.file);
+          const gltf = await gltfLoader.loadAsync(tile.file.replace(/^\//, ''));
           bakeTileIntoBuckets(gltf.scene, tile.matrix, wallBuckets, roofBuckets, wallTrimMap);
         } catch (err) {
           console.warn('[swissBUILDINGS3D] Skipped tile', tile.file, err?.message || err);
@@ -1647,6 +1656,7 @@ export async function loadSwissBuildings3D(
   return {
     group: swissGroup,
     nightUniform,
+    winterUniform,
     getRealRoofHeight,
     sampleRoofSurfaceHeight,
     sampleRoofSupport,

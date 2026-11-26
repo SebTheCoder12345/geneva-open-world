@@ -10,6 +10,7 @@ import { buildGenevaWorld } from './world/buildGeneva.js';
 import { loadSwissBuildings3D } from './world/swissBuildings3D.js';
 import { buildGenevaIdentity } from './world/genevaIdentity.js';
 import { buildGenevaStreetLife } from './world/genevaStreetLife.js';
+import { createGenevaInteriors } from './world/genevaInteriors.js';
 import { createSkyDome, createEnvironmentMap } from './world/skyAndWater.js';
 import { createGtaPostPass } from './world/gtaPostFX.js';
 import { createRainTexture, loadPhotoPBRBundle } from './world/textures.js';
@@ -150,8 +151,8 @@ sunLight.shadow.camera.left = -shadowRange;
 sunLight.shadow.camera.right = shadowRange;
 sunLight.shadow.camera.top = shadowRange;
 sunLight.shadow.camera.bottom = -shadowRange;
-sunLight.shadow.bias = -0.00058;
-sunLight.shadow.normalBias = 0.048;
+sunLight.shadow.bias = -0.00038;
+sunLight.shadow.normalBias = 0.072;
 scene.add(sunLight);
 scene.add(sunLight.target);
 
@@ -179,6 +180,42 @@ const rainPoints = new THREE.Points(
 rainPoints.visible = false;
 scene.add(rainPoints);
 
+// Soft Drifting Alpine Snowflake Particles for Winter Geneva Mode!
+const snowCount = 2000;
+const snowGeo = new THREE.BufferGeometry();
+const snowPos = new Float32Array(snowCount * 3);
+for (let i = 0; i < snowCount; i++) {
+  snowPos[i * 3] = (Math.random() - 0.5) * 140;
+  snowPos[i * 3 + 1] = Math.random() * 65;
+  snowPos[i * 3 + 2] = (Math.random() - 0.5) * 140;
+}
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+const snowCan = document.createElement('canvas');
+snowCan.width = 64; snowCan.height = 64;
+const snCtx = snowCan.getContext('2d');
+const snGrad = snCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+snGrad.addColorStop(0, 'rgba(255,255,255,1.0)');
+snGrad.addColorStop(0.55, 'rgba(240,248,255,0.75)');
+snGrad.addColorStop(1, 'rgba(240,248,255,0.0)');
+snCtx.fillStyle = snGrad;
+snCtx.fillRect(0, 0, 64, 64);
+const snowPoints = new THREE.Points(
+  snowGeo,
+  new THREE.PointsMaterial({
+    map: new THREE.CanvasTexture(snowCan),
+    color: 0xffffff,
+    size: 0.88,
+    transparent: true,
+    opacity: 0.88,
+    depthWrite: false,
+  })
+);
+snowPoints.visible = false;
+scene.add(snowPoints);
+
+let lightningFlash = 0;
+let nextLightningAt = 6.5;
+
 // Game state
 let worldReady = false;
 let started = false;
@@ -198,11 +235,15 @@ let highSpeedCooldown = 0;
 let world = null;
 let vehicleMgr = null;
 let player = null;
+let interiors = null;
 
 // Crisp golden late-afternoon Geneva sun (17:05 — raking golden shadows across Quai du Général-Guisan & warm molasse facades, matching real photo!)
 const settings = {
   quality: 'auto',
+  weather: 'summer', // 'summer' | 'rain' | 'storm' | 'winter'
   rain: false,
+  storm: false,
+  winter: false,
   dayCycle: true,
   timeOfDay: 17.05,
   sensitivity: 1.0,
@@ -210,6 +251,21 @@ const settings = {
   camMode: 0,
   cinematicCam: false,
 };
+
+function applyWeatherMode(mode) {
+  const m = ['summer', 'rain', 'storm', 'winter'].includes(mode) ? mode : 'summer';
+  settings.weather = m;
+  settings.rain = m === 'rain' || m === 'storm';
+  settings.storm = m === 'storm';
+  settings.winter = m === 'winter';
+  rainPoints.visible = settings.rain;
+  snowPoints.visible = settings.winter;
+  if (world) {
+    world.setWetRoads(settings.rain);
+    world.setWinterMode?.(settings.winter);
+  }
+  hud?.syncWeather?.(m);
+}
 
 let camYaw = -2.1;
 let camPitch = 0.08; // immersive street-level over-the-shoulder eye horizon!
@@ -433,6 +489,22 @@ const hud = createHudAndMenus({
       player.state.grounded = true;
       player.state.yaw = 1.2;
       camPitch = 0.14;
+    } else if (camPreset === 'steamer') {
+      // View of CGN Belle Époque Paddle Steamer ("La Suisse") cruising across Lac Léman from Quai du Mont-Blanc / Bains des Pâquis!
+      const sp = world?.cgnSteamer?.pos || { x: 245, z: -215 };
+      player.state.x = 432.0;
+      player.state.z = -504.0;
+      player.state.y = getGroundHeight(432.0, -504.0) + 0.255;
+      player.state.yaw = Math.atan2(sp.x - 432.0, sp.z - -504.0);
+      camPitch = 0.08;
+    } else if (camPreset === 'interior_watch' || camPreset === 'interior_bank' || camPreset === 'interior_buvette') {
+      const idMap = {
+        interior_watch: 'watch_boutique',
+        interior_bank: 'private_bank',
+        interior_buvette: 'buvette_bains',
+      };
+      interiors?.enterInterior(idMap[camPreset], player.state);
+      camPitch = 0.08;
     } else if (camPreset === 'drive_test') {
       const car = vehicleMgr.vehicles.find((v) => v.id === 'coupe_red');
       if (car) {
@@ -463,6 +535,9 @@ const hud = createHudAndMenus({
         hud.syncTimeOfDay(settings.timeOfDay);
       }
     }
+    const qWeather = params.get('weather');
+    if (qWeather) applyWeatherMode(qWeather);
+    if (params.get('outfit') === 'swimwear') player.applyOutfitMode('swimwear');
     if (params.get('stats') === '1') {
       document.getElementById('fps-hud')?.classList.remove('hidden');
     }
@@ -504,9 +579,10 @@ const hud = createHudAndMenus({
     mapUI.setOpen(true, getActivePos());
   },
   onSetRain(v) {
-    settings.rain = v;
-    rainPoints.visible = v;
-    if (world) world.setWetRoads(v);
+    applyWeatherMode(v ? 'rain' : 'summer');
+  },
+  onSetWeather(mode) {
+    applyWeatherMode(mode);
   },
   onSetFlashlight(v) {
     if (player) player.state.flashlightOn = v;
@@ -550,9 +626,7 @@ const hud = createHudAndMenus({
   },
   onResetSettings() {
     settings.quality = 'auto';
-    settings.rain = false;
-    rainPoints.visible = false;
-    if (world) world.setWetRoads(false);
+    applyWeatherMode('summer');
     settings.dayCycle = true;
     settings.timeOfDay = 17.75;
     settings.sensitivity = 1.0;
@@ -601,17 +675,17 @@ async function bootRealGeneva() {
   const rgbeLoader = new RGBELoader();
 
   const [realData, streetFeatures, realPlaces, pedZonesData, buildingsMeta, orthoImg, topoImg, photoBundle, hdrDay, hdrSunset, hdrNight] = await Promise.all([
-    fetch('/data/geneva-1to1.json').then((r) => r.json()),
-    fetch('/data/geneva-street-features.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    fetch('/data/geneva-real-places.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    fetch('/data/geneva-pedestrian-zones.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    fetch('/data/geneva-buildings-meta.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    loadImage('/data/geneva-ortho.jpg'),
-    loadImage('/data/geneva-map.jpg'),
+    fetch('data/geneva-1to1.json').then((r) => r.json()),
+    fetch('data/geneva-street-features.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('data/geneva-real-places.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('data/geneva-pedestrian-zones.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('data/geneva-buildings-meta.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    loadImage('data/geneva-ortho.jpg'),
+    loadImage('data/geneva-map.jpg'),
     loadPhotoPBRBundle(),
-    rgbeLoader.loadAsync('/textures/sky_day.hdr').catch(() => null),
-    rgbeLoader.loadAsync('/textures/sky_sunset.hdr').catch(() => null),
-    rgbeLoader.loadAsync('/textures/sky_night.hdr').catch(() => null),
+    rgbeLoader.loadAsync('textures/sky_day.hdr').catch(() => null),
+    rgbeLoader.loadAsync('textures/sky_sunset.hdr').catch(() => null),
+    rgbeLoader.loadAsync('textures/sky_night.hdr').catch(() => null),
   ]);
 
   const pmremGen = new THREE.PMREMGenerator(renderer);
@@ -664,6 +738,7 @@ async function bootRealGeneva() {
   }
   const identity = buildGenevaIdentity(world.worldGroup, realData, realPlaces, swiss3D);
   const streetLife = buildGenevaStreetLife(world.worldGroup, realData, streetFeatures, swiss3D, world.registerInteractable, world.insertCollider);
+  interiors = createGenevaInteriors(scene, world.worldGroup, world.registerInteractable);
   world.attachRealGenevaLayers(swiss3D, identity, streetLife);
 
   hud.setLoadProgress(94, 'Spawning vehicles, pedestrians & Geneva traffic…');
@@ -861,6 +936,27 @@ window.addEventListener('keydown', (e) => {
       const names = ['Third-person camera', 'Close action camera', 'Wide scenic camera'];
       hud.showSubtitle(names[settings.camMode], 1800);
     }
+  } else if (e.code === 'KeyO' && !e.repeat && !activeVehicle) {
+    const nextOutfit = player.toggleOutfit();
+    audio.playFootstep('walk', 'R', 0.4);
+    hud.showStuntToast(nextOutfit === 'swimwear' ? 'OUTFIT · GENEVA RIVIERA SWIMWEAR' : 'OUTFIT · SAVILE ROW BANKER SUIT');
+    hud.showSubtitle(
+      nextOutfit === 'swimwear'
+        ? 'Swapped into Riviera summer swimwear — ready for Les Bains des Pâquis!'
+        : 'Back in your Savile Row midnight-navy investment banker suit.',
+      2600
+    );
+  } else if (e.code === 'KeyU' && !e.repeat) {
+    const order = ['summer', 'rain', 'storm', 'winter'];
+    const next = order[(order.indexOf(settings.weather) + 1) % order.length];
+    applyWeatherMode(next);
+    const labels = {
+      summer: 'WEATHER · GENEVA SUMMER SUN',
+      rain: 'WEATHER · ALPINE RAIN',
+      storm: 'WEATHER · MONT SALÈVE THUNDERSTORM',
+      winter: 'WEATHER · WINTER GENEVA SNOW & LIGHTS',
+    };
+    hud.showStuntToast(labels[next]);
   } else if (e.code === 'KeyC') {
     settings.cinematicCam = !settings.cinematicCam;
     hud.showSubtitle(settings.cinematicCam ? 'GTA Cinematic Camera ON' : 'Standard Camera', 1800);
@@ -998,6 +1094,36 @@ function triggerCarTheft(vehicleObj, wasOccupied = false) {
 const interactCooldowns = new Map();
 function triggerInteractable() {
   if (!player || !world?.findNearestInteractable || activeVehicle) return;
+  // Handle interior actions & exit door seamlessly when inside a Geneva boutique / bank / buvette!
+  if (interiors?.isInside()) {
+    const act = interiors.findNearestInteriorAction(player.state.x, player.state.z);
+    if (!act) return;
+    if (act.kind === 'exit') {
+      const prev = interiors.exitInterior(player.state);
+      camYaw = player.state.yaw + Math.PI;
+      audio.playFootstep('walk', 'L', 0.4);
+      hud.showSubtitle(`Stepped back outside ${prev?.title || 'Geneva'}.`, 2200);
+    } else if (act.kind === 'action' && act.item) {
+      const it = act.item;
+      if (it.subtitle) hud.showSubtitle(it.subtitle, 3800);
+      if (it.toast) hud.showStuntToast(it.toast);
+      if (it.rewardCash) {
+        const now = performance.now();
+        const last = interactCooldowns.get(it.id) || 0;
+        if (now - last > 45000) {
+          interactCooldowns.set(it.id, now);
+          cash += it.rewardCash;
+          audio.playChime(true);
+        } else {
+          audio.playChime(false);
+        }
+      } else {
+        audio.playChime(false);
+      }
+    }
+    return;
+  }
+
   if (player.isInteracting()) {
     player.stopInteraction();
     audio.playFootstep('walk', 'L', 0.35);
@@ -1006,6 +1132,23 @@ function triggerInteractable() {
   const hit = world.findNearestInteractable(player.state.x, player.state.z);
   if (!hit) return;
   const it = hit.item;
+  if (it.type === 'interior_enter' && interiors) {
+    const room = interiors.enterInterior(it.interiorId, player.state);
+    if (room) {
+      camYaw = player.state.yaw + Math.PI;
+      audio.playChime(false);
+      hud.showStuntToast(room.title);
+      hud.showSubtitle(it.subtitle || `Welcome inside ${room.title}!`, 3600);
+    }
+    return;
+  }
+  if (it.type === 'cabana_outfit') {
+    const nextOutfit = player.toggleOutfit();
+    audio.playChime(false);
+    hud.showStuntToast(nextOutfit === 'swimwear' ? 'SWIMWEAR EQUIPPED!' : 'BANKER SUIT EQUIPPED!');
+    hud.showSubtitle(it.subtitle, 3200);
+    return;
+  }
   if (!player.startInteraction(it)) return;
 
   if (it.subtitle) hud.showSubtitle(it.subtitle, it.persistent ? 3600 : 3200);
@@ -1207,13 +1350,27 @@ function updateSkyAndLighting(dt, elapsed) {
 
   tmpFog.copy(fogNight).lerp(fogDay, dayFactor);
   if (sunsetFactor > 0) tmpFog.lerp(fogSunset, sunsetFactor * 0.36);
-  if (settings.rain) tmpFog.lerp(fogRainCol, 0.55);
+  if (settings.rain) tmpFog.lerp(fogRainCol, settings.storm ? 0.78 : 0.55);
+  if (settings.winter) tmpFog.lerp(new THREE.Color(0xcad9e8), 0.45);
+
+  // Periodic dramatic Alpine thunderstorm lightning flashes + rolling thunderclap!
+  if (settings.storm && started && !paused) {
+    if (elapsed >= nextLightningAt) {
+      lightningFlash = 1.0;
+      nextLightningAt = elapsed + 7.5 + Math.random() * 11.0;
+      setTimeout(() => { if (settings.storm) audio.playThunderRumble(); }, 420);
+    }
+  }
+  lightningFlash = Math.max(0, lightningFlash - dt * 3.8);
 
   tmpSunCol.copy(sunDayCol).lerp(sunSetCol, sunsetFactor * 0.45).lerp(moonNightCol, moonBlend);
+  if (settings.winter) tmpSunCol.lerp(new THREE.Color(0xdcebff), 0.32);
+  if (lightningFlash > 0.05) tmpSunCol.lerp(new THREE.Color(0xeef6ff), lightningFlash * 0.85);
   sunLight.color.copy(tmpSunCol);
   // Crisp sunlit afternoon (3.29) -> smooth twilight -> balanced silver-blue Alpine moonlight (0.54) so warm streetlamps pop while shadows stay clean!
   const directPower = Math.max(moonBlend * 0.54, 0.20 + dayFactor * 3.09);
-  sunLight.intensity = directPower * (settings.rain ? 0.58 : 1.0);
+  const weatherMul = settings.storm ? 0.42 : settings.rain ? 0.58 : settings.winter ? 0.78 : 1.0;
+  sunLight.intensity = directPower * weatherMul + lightningFlash * 4.2;
 
   // Rich nocturnal Alpine skyglow + warm amber Geneva streetlamp bounce on hemisphere light
   hemiLight.color.copy(hemiSkyDay).lerp(hemiSkyNight, nightFactor);
@@ -1470,7 +1627,19 @@ function animate() {
           }
         : keys;
       const effCamYaw = demoLocoMode ? camYaw + 0.82 : camYaw;
-      playerFx = player.update(dt, effKeys, effCamYaw, world.queryColliders, !activeVehicle, allDynCols, world.sampleRoofHeight) || playerFx;
+      const inRoom = interiors?.getActiveRoom();
+      playerFx = player.update(
+        dt,
+        effKeys,
+        effCamYaw,
+        world.queryColliders,
+        !activeVehicle,
+        allDynCols,
+        world.sampleRoofHeight,
+        inRoom ? inRoom.originY : null
+      ) || playerFx;
+      if (inRoom) interiors.clampPlayerInside(player.state);
+      interiors?.update(elapsed);
       if (playerFx.footstep) audio.playFootstep(playerFx.footstep.kind, playerFx.footstep.foot, playerFx.footstep.intensity);
       if (playerFx.scuff) audio.playShoeScuff();
       if (playerFx.jump) audio.playJumpPush();
@@ -1478,10 +1647,20 @@ function animate() {
       else if (playerFx.impactSfx === 'roll') audio.playImpactThud(0.62);
       else if (playerFx.impactSfx === 'soft') audio.playImpactThud(0.32);
       else if (playerFx.impactSfx === 'splash') audio.playWaterSplash();
-      if (playerFx.toast) hud.showStuntToast(playerFx.toast);
+      if (playerFx.diveHeight >= 3) {
+        const diveBonus = Math.min(800, playerFx.diveHeight * 35);
+        cash += diveBonus;
+        audio.playChime(true);
+        hud.showStuntToast(`LAC LÉMAN HIGH DIVE (${playerFx.diveHeight}m) · +CHF ${diveBonus}`);
+      } else if (playerFx.toast) {
+        hud.showStuntToast(playerFx.toast);
+      }
     }
     updateMissionsAndCollectibles();
-    audio.update(activeVehicle, getActivePos(), telemetry, wantedLevel, elapsed);
+    audio.update(activeVehicle, getActivePos(), telemetry, wantedLevel, elapsed, {
+      rain: settings.rain,
+      steamerPos: world?.cgnSteamer?.pos || null,
+    });
 
     // GTA 6 Drift & High-Speed Stunt Rewards + Wanted Stars Police Pursuit!
     if (highSpeedCooldown > 0) highSpeedCooldown -= dt;
@@ -1564,8 +1743,9 @@ function animate() {
     if (settings.rain) {
       const p = getActivePos();
       const rp = rainGeo.attributes.position.array;
+      const fallSpd = settings.storm ? 64 : 48;
       for (let i = 0; i < rainCount; i++) {
-        rp[i * 3 + 1] -= 48 * dt;
+        rp[i * 3 + 1] -= fallSpd * dt;
         if (rp[i * 3 + 1] < 0) {
           rp[i * 3] = p.x + (Math.random() - 0.5) * 120;
           rp[i * 3 + 1] = p.y + 38 + Math.random() * 25;
@@ -1573,6 +1753,20 @@ function animate() {
         }
       }
       rainGeo.attributes.position.needsUpdate = true;
+    }
+    if (settings.winter) {
+      const p = getActivePos();
+      const sp = snowGeo.attributes.position.array;
+      for (let i = 0; i < snowCount; i++) {
+        sp[i * 3] += Math.sin(elapsed * 0.9 + i) * 1.4 * dt;
+        sp[i * 3 + 1] -= 4.2 * dt;
+        if (sp[i * 3 + 1] < p.y - 3) {
+          sp[i * 3] = p.x + (Math.random() - 0.5) * 110;
+          sp[i * 3 + 1] = p.y + 28 + Math.random() * 26;
+          sp[i * 3 + 2] = p.z + (Math.random() - 0.5) * 110;
+        }
+      }
+      snowGeo.attributes.position.needsUpdate = true;
     }
 
     // GTA Smooth Auto-Centering Driving Camera + Cinematic Camera Mode (C)
@@ -1728,6 +1922,13 @@ function animate() {
       // Frame-rate-independent critically-damped camera follow (silky smooth at 30/60/120/144 FPS!)
       _camTargetVec.set(desiredX + sx, desiredY + sy, desiredZ);
       camera.position.lerp(_camTargetVec, 1 - Math.exp(-dt * 15.0));
+      // Keep 3rd-person camera cleanly inside room bounds whenever exploring enterable Geneva interiors!
+      const actRoom = interiors?.getActiveRoom();
+      if (actRoom) {
+        camera.position.x = Math.max(-actRoom.halfW + 0.3, Math.min(actRoom.halfW - 0.3, camera.position.x));
+        camera.position.z = Math.max(-actRoom.halfD + 0.3, Math.min(actRoom.halfD - 0.3, camera.position.z));
+        camera.position.y = Math.max(actRoom.originY + 0.85, Math.min(actRoom.originY + actRoom.height - 0.45, camera.position.y));
+      }
       camera.lookAt(focusX, targetY + (activeVehicle ? 0.1 : 0.16), focusZ);
     }
   }
@@ -1767,6 +1968,12 @@ function animate() {
       promptKey = 'E';
       promptText = activeIt.activeLabel || 'STAND UP';
     }
+  } else if (interiors?.isInside()) {
+    const act = interiors.findNearestInteriorAction(player.state.x, player.state.z);
+    if (act) {
+      promptKey = 'E';
+      promptText = act.label;
+    }
   } else {
     const intHit = world?.findNearestInteractable ? world.findNearestInteractable(player.state.x, player.state.z) : null;
     const vehHit = findNearestVehicle(11.5);
@@ -1796,7 +2003,8 @@ function animate() {
   }
 
   if (frameCount % 8 === 1) {
-    cachedStreetName = getStreetName(pos.x, pos.z, pos.y);
+    const inRoomNow = interiors?.getActiveRoom();
+    cachedStreetName = inRoomNow ? inRoomNow.title : getStreetName(pos.x, pos.z, pos.y);
   }
 
   hud.updateHud({

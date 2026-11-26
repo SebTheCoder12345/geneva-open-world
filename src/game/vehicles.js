@@ -622,14 +622,14 @@ export function createVehicles(scene) {
   }
 
   const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath('/draco/');
+  dracoLoader.setDecoderPath('draco/');
   const gltfLoader = new GLTFLoader();
   gltfLoader.setDRACOLoader(dracoLoader);
 
   // Load Ferrari GLB for sports/police/taxi (pre-batched ONCE from 51 meshes -> ~18 meshes!)
   // AND our pre-batched Blender GLBs for Dodge Charger SRT, Porsche 911 GT3, Audi RS6, G-Wagon, Euro Sedan & Red Vespa!
   gltfLoader.load(
-    '/models/ferrari.glb',
+    'models/ferrari.glb',
     (gltf) => {
       const template = gltf.scene.children[0] || gltf.scene;
       // Tag custom-styled Ferrari parts before pre-batching template ONCE

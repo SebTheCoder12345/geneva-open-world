@@ -8,7 +8,7 @@ import { batchStaticGroup, batchVehicleTemplate } from './staticBatcher.js';
 // Shared Blender GLB template cache so drivable TPG Bus + AI TPG Buses + Stadler Trams share pre-batched GPU buffers!
 const gltfLoader = new GLTFLoader();
 const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('/draco/');
+dracoLoader.setDecoderPath('draco/');
 gltfLoader.setDRACOLoader(dracoLoader);
 
 let busTemplatePromise = null;
@@ -75,7 +75,7 @@ function preBatchCarTemplate(scene, label) {
 export function loadBusTemplate() {
   if (!busTemplatePromise) {
     busTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/tpg_bus.glb', (g) => resolve(preBatchBusTemplate(g.scene)), undefined, () => resolve(null));
+      gltfLoader.load('models/tpg_bus.glb', (g) => resolve(preBatchBusTemplate(g.scene)), undefined, () => resolve(null));
     });
   }
   return busTemplatePromise;
@@ -84,7 +84,7 @@ export function loadBusTemplate() {
 export function loadTramTemplate() {
   if (!tramTemplatePromise) {
     tramTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/tpg_tram.glb', (g) => resolve(preBatchTramTemplate(g.scene)), undefined, () => resolve(null));
+      gltfLoader.load('models/tpg_tram.glb', (g) => resolve(preBatchTramTemplate(g.scene)), undefined, () => resolve(null));
     });
   }
   return tramTemplatePromise;
@@ -93,7 +93,7 @@ export function loadTramTemplate() {
 export function loadGwagonTemplate() {
   if (!gwagonTemplatePromise) {
     gwagonTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/suv_gwagon.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'GwagonTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/suv_gwagon.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'GwagonTpl')), undefined, () => resolve(null));
     });
   }
   return gwagonTemplatePromise;
@@ -102,7 +102,7 @@ export function loadGwagonTemplate() {
 export function loadSedanTemplate() {
   if (!sedanTemplatePromise) {
     sedanTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/sedan_euro.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'SedanTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/sedan_euro.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'SedanTpl')), undefined, () => resolve(null));
     });
   }
   return sedanTemplatePromise;
@@ -111,7 +111,7 @@ export function loadSedanTemplate() {
 export function loadVanTemplate() {
   if (!vanTemplatePromise) {
     vanTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/van_swiss.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'VanTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/van_swiss.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'VanTpl')), undefined, () => resolve(null));
     });
   }
   return vanTemplatePromise;
@@ -120,7 +120,7 @@ export function loadVanTemplate() {
 export function loadVespaTemplate() {
   if (!vespaTemplatePromise) {
     vespaTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/vespa_scooter.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'VespaTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/vespa_scooter.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'VespaTpl')), undefined, () => resolve(null));
     });
   }
   return vespaTemplatePromise;
@@ -129,7 +129,7 @@ export function loadVespaTemplate() {
 export function loadChargerTemplate() {
   if (!chargerTemplatePromise) {
     chargerTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/dodge_charger.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'ChargerTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/dodge_charger.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'ChargerTpl')), undefined, () => resolve(null));
     });
   }
   return chargerTemplatePromise;
@@ -138,7 +138,7 @@ export function loadChargerTemplate() {
 export function loadPorscheTemplate() {
   if (!porscheTemplatePromise) {
     porscheTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/porsche_911.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'PorscheTpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/porsche_911.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'PorscheTpl')), undefined, () => resolve(null));
     });
   }
   return porscheTemplatePromise;
@@ -147,7 +147,7 @@ export function loadPorscheTemplate() {
 export function loadRs6Template() {
   if (!rs6TemplatePromise) {
     rs6TemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/audi_rs6.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'Rs6Tpl')), undefined, () => resolve(null));
+      gltfLoader.load('models/audi_rs6.glb', (g) => resolve(preBatchCarTemplate(g.scene, 'Rs6Tpl')), undefined, () => resolve(null));
     });
   }
   return rs6TemplatePromise;
@@ -374,7 +374,7 @@ export function cloneStyledBlenderVehicle(template, colorHex) {
 function loadCarTemplate() {
   if (!carTemplatePromise) {
     carTemplatePromise = new Promise((resolve) => {
-      gltfLoader.load('/models/ferrari.glb', (g) => resolve(g.scene.children[0] || g.scene), undefined, () => resolve(null));
+      gltfLoader.load('models/ferrari.glb', (g) => resolve(g.scene.children[0] || g.scene), undefined, () => resolve(null));
     });
   }
   return carTemplatePromise;

@@ -124,7 +124,7 @@ export function createSkyDome(scene) {
 // TRUE AAA REAL-TIME PLANAR REFLECTIVE LAC LÉMAN WATER!
 // Reflects real 3D Geneva buildings, Pont du Mont-Blanc, Alps, Jet d'Eau & 2K clouds across animated normal-mapped waves!
 export function createRealisticWater(scene) {
-  const waterNormals = new THREE.TextureLoader().load('/textures/waternormals.jpg', (tex) => {
+  const waterNormals = new THREE.TextureLoader().load('textures/waternormals.jpg', (tex) => {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 8;
   });

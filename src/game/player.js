@@ -49,6 +49,9 @@ export function createPlayer(scene) {
   let emoteDur = 1.4;
   let interact = null; // { item, phase: 'enter'|'active'|'exit', t, enterDur, exitDur, startX, startY, startZ, startYaw, anchorX, anchorY, anchorZ, anchorYaw, exitX, exitY, exitZ, sfxFired }
   let espressoProp = null;
+  let outfitMode = 'banker'; // 'banker' (Savile Row 3-piece suit) | 'swimwear' (Geneva Riviera summer swimwear!)
+  const outfitMeshRefs = [];
+  const outfitMatOriginals = new Map();
   let turnLean = 0;
   let idleClock = 0;
   let coyoteTimer = 0;
@@ -72,7 +75,7 @@ export function createPlayer(scene) {
 
   const loader = new GLTFLoader();
   loader.load(
-    '/models/protagonist_hero.glb?v=banker2',
+    'models/protagonist_hero.glb?v=banker2',
     (gltf) => {
       const modelRoot = gltf.scene;
       modelRoot.scale.set(1.0, 1.0, 1.0);
@@ -97,12 +100,26 @@ export function createPlayer(scene) {
       modelRoot.traverse((obj) => {
         if (obj.isMesh) {
           obj.castShadow = true;
-          obj.receiveShadow = true;
+          // Disable self-shadowing on protagonist suit meshes to eliminate midday shadow-acne striping across navy wool!
+          obj.receiveShadow = false;
           obj.frustumCulled = false;
           if (Array.isArray(obj.material)) {
             obj.material = obj.material.map(tuneBankerMat);
           } else if (obj.material) {
             obj.material = tuneBankerMat(obj.material);
+          }
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          const names = mats.map((mt) => mt?.name || '').join(' ') + ' ' + (obj.name || '');
+          outfitMeshRefs.push({ mesh: obj, names, mats });
+          for (const mt of mats) {
+            if (mt && !outfitMatOriginals.has(mt)) {
+              outfitMatOriginals.set(mt, {
+                color: mt.color ? mt.color.clone() : null,
+                map: mt.map || null,
+                roughness: mt.roughness,
+                metalness: mt.metalness,
+              });
+            }
           }
         }
       });
@@ -324,6 +341,61 @@ export function createPlayer(scene) {
     return walkToggled;
   }
 
+  function applyOutfitMode(mode) {
+    outfitMode = mode === 'swimwear' ? 'swimwear' : 'banker';
+    const isSwim = outfitMode === 'swimwear';
+    for (const ref of outfitMeshRefs) {
+      const n = ref.names;
+      // Hide formal accessories (tie, tie bar, pocket square, jacket lapels, belt, cuffs) in Riviera swimwear mode!
+      if (/Tie|Lapel|Pocket|Collar|Cuff|Belt|Button|Waistcoat/i.test(n) && !/Watch|Shade|Head|Hair|Skin|Eye|Teeth/i.test(n)) {
+        ref.mesh.visible = !isSwim;
+      }
+      for (const mt of ref.mats) {
+        if (!mt) continue;
+        const orig = outfitMatOriginals.get(mt);
+        if (!orig) continue;
+        const mn = mt.name || '';
+        if (!isSwim) {
+          if (orig.color && mt.color) mt.color.copy(orig.color);
+          mt.map = orig.map;
+          mt.roughness = orig.roughness;
+          mt.metalness = orig.metalness;
+          mt.needsUpdate = true;
+        } else {
+          // Crisp Geneva Riviera summer look: vibrant Riviera turquoise swim shorts + crisp white resort linen top!
+          if (/Trouser|Pant|Bottom|Leg/i.test(mn) || /Bottom/i.test(ref.names)) {
+            mt.map = null;
+            if (mt.color) mt.color.setHex(0x0f8eb8); // Riviera turquoise-blue swim trunks!
+            mt.roughness = 0.56;
+            mt.metalness = 0.04;
+            mt.needsUpdate = true;
+          } else if (/Suit|Jacket|Top|Shirt/i.test(mn) || /Top/i.test(ref.names)) {
+            mt.map = null;
+            if (mt.color) mt.color.setHex(0xf5f2eb); // Crisp Riviera white linen resort shirt!
+            mt.roughness = 0.68;
+            mt.metalness = 0.02;
+            mt.needsUpdate = true;
+          } else if (/Oxford|Shoe|Footwear|Socks/i.test(mn) || /Footwear/i.test(ref.names)) {
+            mt.map = null;
+            if (mt.color) mt.color.setHex(0xc99c6b); // Tan Riviera loafers / sandals
+            mt.roughness = 0.66;
+            mt.metalness = 0.02;
+            mt.needsUpdate = true;
+          }
+        }
+      }
+    }
+    return outfitMode;
+  }
+
+  function toggleOutfit() {
+    return applyOutfitMode(outfitMode === 'banker' ? 'swimwear' : 'banker');
+  }
+
+  function getOutfit() {
+    return outfitMode;
+  }
+
   function getLocomotionState() {
     return locoOut;
   }
@@ -464,9 +536,9 @@ export function createPlayer(scene) {
     }
   }
 
-  const _fxReusable = { cameraShake: 0, impactSfx: null, toast: null, footstep: null, scuff: false, jump: false };
+  const _fxReusable = { cameraShake: 0, impactSfx: null, toast: null, footstep: null, scuff: false, jump: false, diveHeight: 0 };
 
-  function update(dt, keys, cameraYaw, queryColliders, visible = true, dynamicColliders = [], sampleRoofHeight = null) {
+  function update(dt, keys, cameraYaw, queryColliders, visible = true, dynamicColliders = [], sampleRoofHeight = null, interiorFloorY = null) {
     const fxOut = _fxReusable;
     fxOut.cameraShake = 0;
     fxOut.impactSfx = null;
@@ -474,6 +546,7 @@ export function createPlayer(scene) {
     fxOut.footstep = null;
     fxOut.scuff = false;
     fxOut.jump = false;
+    fxOut.diveHeight = 0;
     group.visible = visible;
     contactShadow.visible = visible;
     group.rotation.set(0, state.yaw, 0);
@@ -838,18 +911,26 @@ export function createPlayer(scene) {
       const moveDist = Math.hypot(state.vx * dt, state.vz * dt);
       const pSteps = Math.max(1, Math.min(5, Math.ceil(moveDist / 0.28)));
       const pdt = dt / pSteps;
-      let floorY = getGroundHeight(state.x, state.z) + 0.255;
-      if (isWater(state.x, state.z)) floorY = -0.86;
+      let floorY = interiorFloorY !== null ? interiorFloorY : getGroundHeight(state.x, state.z) + 0.255;
+      if (interiorFloorY === null && isWater(state.x, state.z)) floorY = -0.86;
       const roofRefY = Math.max(prevY, state.y) + 1.65;
 
       for (let ps = 0; ps < pSteps; ps++) {
-        const clamped = clampToWorld(state.x + state.vx * pdt, state.z + state.vz * pdt);
-        if (state.grounded && isWalking && !state.swimming && isWater(clamped.x, clamped.z) && !isWater(prevX, prevZ)) {
+        const clamped =
+          interiorFloorY !== null
+            ? { x: state.x + state.vx * pdt, z: state.z + state.vz * pdt }
+            : clampToWorld(state.x + state.vx * pdt, state.z + state.vz * pdt);
+        if (interiorFloorY === null && state.grounded && isWalking && !state.swimming && isWater(clamped.x, clamped.z) && !isWater(prevX, prevZ)) {
           state.vx = 0;
           state.vz = 0;
         } else {
           state.x = clamped.x;
           state.z = clamped.z;
+        }
+
+        if (interiorFloorY !== null) {
+          floorY = interiorFloorY;
+          continue;
         }
 
         let gHere = isWater(state.x, state.z) ? -0.86 : getGroundHeight(state.x, state.z) + 0.255;
@@ -911,7 +992,16 @@ export function createPlayer(scene) {
       }
 
       if (!state.swimming) {
-        if (state.y <= floorY) {
+        if (interiorFloorY === null && isWater(state.x, state.z) && state.y <= 0.1) {
+          state.swimming = true;
+          state.grounded = false;
+          fxOut.impactSfx = 'splash';
+          if (maxFallSpeed > 8.5) {
+            fxOut.diveHeight = Math.round((maxFallSpeed * maxFallSpeed) / (2 * 23.5));
+          }
+          maxFallSpeed = 0;
+          fallTime = 0;
+        } else if (state.y <= floorY) {
           // Track landing impact severity when touching down after a jump or rooftop/helicopter fall!
           if (!wasGrounded && maxFallSpeed > 4.5) {
             if (maxFallSpeed > 22.5) {
@@ -1079,6 +1169,9 @@ export function createPlayer(scene) {
     triggerKnockdown,
     toggleCrouch,
     toggleWalkMode,
+    toggleOutfit,
+    applyOutfitMode,
+    getOutfit,
     startInteraction,
     stopInteraction,
     isInteracting,
